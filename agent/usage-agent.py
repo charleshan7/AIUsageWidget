@@ -15,6 +15,7 @@ import os
 import sys
 import time
 import glob
+import base64
 import getpass
 import subprocess
 import datetime
@@ -90,8 +91,25 @@ def read_codex():
         except Exception:
             continue
         if last:
-            return _codex_payload(last)
+            payload = _codex_payload(last)
+            payload["plan"] = _codex_plan()
+            return payload
     return {"ok": False, "error": "无数据（还没用过 Codex？）"}
+
+
+def _codex_plan():
+    """从 ~/.codex/auth.json 的 id_token 里解出套餐名（plus / pro / business…）。"""
+    try:
+        d = json.load(open(os.path.expanduser("~/.codex/auth.json")))
+        tok = d.get("tokens", {}).get("id_token")
+        if not tok:
+            return None
+        seg = tok.split(".")[1]
+        seg += "=" * (-len(seg) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(seg.encode()))
+        return payload.get("https://api.openai.com/auth", {}).get("chatgpt_plan_type")
+    except Exception:
+        return None
 
 def _codex_payload(rl):
     def win(w):
