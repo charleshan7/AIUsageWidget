@@ -97,8 +97,12 @@ def _codex_payload(rl):
     def win(w):
         if not isinstance(w, dict):
             return None
-        return {"percent": round(w.get("used_percent") or 0),
-                "resets_at": int(w["resets_at"]) if w.get("resets_at") else None}
+        ra = int(w["resets_at"]) if w.get("resets_at") else None
+        # 窗口已过重置点：Codex 的百分比是上次调用时的快照，过点后那条已作废，
+        # 实际已重置为 0（用户这段时间没再用 Codex，所以没有新快照）。
+        if ra is not None and ra < time.time():
+            return {"percent": 0, "resets_at": None}
+        return {"percent": round(w.get("used_percent") or 0), "resets_at": ra}
     return {"ok": True,
             "five_hour": win(rl.get("primary")),
             "seven_day": win(rl.get("secondary"))}
@@ -192,8 +196,10 @@ def read_claude(opener):
 def _claude_win(w):
     if not isinstance(w, dict):
         return None
-    return {"percent": round(w.get("utilization") or 0),
-            "resets_at": iso_to_unix(w.get("resets_at"))}
+    ra = iso_to_unix(w.get("resets_at"))
+    if ra is not None and ra < time.time():
+        return {"percent": 0, "resets_at": None}
+    return {"percent": round(w.get("utilization") or 0), "resets_at": ra}
 
 # ---------------------------------------------------------------- 合并 + 缓存
 

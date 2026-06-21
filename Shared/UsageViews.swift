@@ -59,6 +59,13 @@ func resetAbsolute(_ unix: Int?) -> String {
     return fmt.string(from: date)
 }
 
+// 重置说明行。窗口已重置（resets_at 为空）时显示「已重置」。
+func resetLine(_ w: UsageWindow, absolute: Bool) -> String {
+    guard w.resetsAt != nil else { return "已重置" }
+    return absolute ? "\(resetCountdown(w.resetsAt)) · \(resetAbsolute(w.resetsAt))"
+                    : resetCountdown(w.resetsAt)
+}
+
 // ---- 基础组件 ----
 
 struct UsageBar: View {
@@ -115,9 +122,7 @@ struct MetricRow: View {
             }
             UsageBar(percent: window?.percent ?? 0, height: barHeight)
             if showReset, let w = window {
-                Text(showAbsolute
-                     ? "\(resetCountdown(w.resetsAt)) · \(resetAbsolute(w.resetsAt))"
-                     : resetCountdown(w.resetsAt))
+                Text(resetLine(w, absolute: showAbsolute))
                     .font(.system(size: 10)).foregroundColor(Palette.tertiary)
             }
         }
