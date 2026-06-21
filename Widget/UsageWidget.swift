@@ -63,9 +63,10 @@ struct UsageWidgetEntryView: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(Palette.secondary)
                     .padding(5)
+                    .background(Circle().fill(Palette.track))
             }
             .buttonStyle(.plain)
-            .padding(6)
+            .padding(7)
         }
     }
 }

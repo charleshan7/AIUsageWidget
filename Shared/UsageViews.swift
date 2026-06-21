@@ -70,9 +70,13 @@ struct ProductHeader: View {
             Circle().fill(color).frame(width: 7, height: 7)
             Text(name).font(.system(size: 12, weight: .medium)).foregroundColor(Palette.textPrimary)
             if let plan = plan {
-                Spacer(minLength: 0)
-                Text(plan).font(.system(size: 10)).foregroundColor(Palette.tertiary)
+                Text(plan.capitalized)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(Palette.secondary)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(Palette.track))
             }
+            Spacer(minLength: 0)
         }
     }
 }
