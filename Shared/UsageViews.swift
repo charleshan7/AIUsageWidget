@@ -148,7 +148,8 @@ struct SmallMetric: View {
             UsageBar(percent: window?.percent ?? 0, height: 5)
             Text(window.map { "\($0.percent)%" } ?? "—")
                 .font(.system(size: 11, weight: .medium)).foregroundColor(Palette.textPrimary)
-                .frame(width: 30, alignment: .trailing)
+                .lineLimit(1).minimumScaleFactor(0.8)
+                .frame(width: 40, alignment: .trailing)
         }
     }
 }
@@ -159,7 +160,7 @@ struct SmallProduct: View {
     let product: ProductUsage
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            ProductHeader(name: name, color: color)
+            ProductHeader(name: name, color: color, plan: product.plan)
             if product.ok {
                 SmallMetric(label: "5h", window: product.fiveHour)
                 SmallMetric(label: "周", window: product.sevenDay)
@@ -190,7 +191,7 @@ struct MediumColumn: View {
     let product: ProductUsage
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ProductHeader(name: name, color: color)
+            ProductHeader(name: name, color: color, plan: product.plan)
             if product.ok {
                 MetricRow(label: "5 小时", window: product.fiveHour)
                 MetricRow(label: "一周", window: product.sevenDay)
