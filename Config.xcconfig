@@ -1,0 +1,4 @@
+// 默认本地 Agent 端点。要改端口就改这里（需和 Agent config 一致）。
+AI_USAGE_ENDPOINT = http:/$()/127.0.0.1:47615/usage
+
+#include? "Config.local.xcconfig"

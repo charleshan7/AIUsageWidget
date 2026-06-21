@@ -1,0 +1,1 @@
+AI_USAGE_ENDPOINT = http:/$()/127.0.0.1:47615/usage

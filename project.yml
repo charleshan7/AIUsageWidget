@@ -1,0 +1,54 @@
+name: AIUsageWidget
+options:
+  bundleIdPrefix: com.charles.aiusage
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+    SWIFT_EMIT_LOC_STRINGS: YES
+targets:
+  AIUsageWidget:
+    type: application
+    platform: macOS
+    configFiles:
+      Debug: Config.xcconfig
+      Release: Release.xcconfig
+    sources:
+      - path: App
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.charles.aiusage
+        PRODUCT_NAME: AIUsageWidget
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: App/App.entitlements
+        ENABLE_PREVIEWS: YES
+        COMBINE_HIDPI_IMAGES: YES
+    dependencies:
+      - target: AIUsageWidgetExtension
+        embed: true
+  AIUsageWidgetExtension:
+    type: app-extension
+    platform: macOS
+    configFiles:
+      Debug: Config.xcconfig
+      Release: Release.xcconfig
+    sources:
+      - path: Widget
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.charles.aiusage.widget
+        PRODUCT_NAME: AIUsageWidgetExtension
+        INFOPLIST_FILE: Widget/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Widget/Widget.entitlements
+        ENABLE_PREVIEWS: YES
+        SKIP_INSTALL: YES
