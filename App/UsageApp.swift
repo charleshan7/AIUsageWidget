@@ -28,13 +28,12 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 14) {
             ZStack {
-                LinearGradient(colors: [Color(red: 0.10, green: 0.11, blue: 0.16),
-                                        Color(red: 0.05, green: 0.06, blue: 0.09)],
-                               startPoint: .top, endPoint: .bottom)
+                Palette.cardBackground
                 LargeView(snapshot: snapshot)
             }
             .frame(width: 320, height: 290)
             .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Palette.track, lineWidth: 0.5))
 
             HStack(spacing: 10) {
                 Circle().fill(connected ? Color.green : Color.gray).frame(width: 7, height: 7)

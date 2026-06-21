@@ -96,7 +96,7 @@ Keychain(Claude Code-       │   · 读 Codex 最新 rate_limits         (URLSe
 - **中卡**：左右两列 Claude / Codex，各含 5h、周进度条 + 百分比 + 「约 X 小时后重置」。
 - **大卡**：上下两段，进度条更大，含百分比 + 「X 小时后重置 · 绝对时间」。
 - 右上角放刷新按钮（`AppIntent`，复用 WorldCup 的 `RefreshIntent` 模式）。
-- 背景沿用 WorldCup 的深色渐变 `containerBackground`。
+- 背景为近白色（`containerBackground` 浅色），文字深色，三档严重度颜色用低饱和柔和色。
 
 ### 异常态
 

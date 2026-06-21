@@ -76,12 +76,7 @@ struct AIUsageWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: UsageProvider()) { entry in
             UsageWidgetEntryView(entry: entry)
-                .containerBackground(for: .widget) {
-                    LinearGradient(
-                        colors: [Color(red: 0.10, green: 0.11, blue: 0.16),
-                                 Color(red: 0.05, green: 0.06, blue: 0.09)],
-                        startPoint: .top, endPoint: .bottom)
-                }
+                .containerBackground(Palette.cardBackground, for: .widget)
         }
         .configurationDisplayName("AI 用量")
         .description("查看 Claude Code 与 Codex 的 5 小时 / 一周用量。")

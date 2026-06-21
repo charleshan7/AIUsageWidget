@@ -3,17 +3,21 @@ import SwiftUI
 // ---- 配色与格式化 ----
 
 enum Palette {
-    static let claude = Color(red: 0.85, green: 0.35, blue: 0.19)
-    static let codex = Color(red: 0.11, green: 0.62, blue: 0.46)
-    static let track = Color.white.opacity(0.15)
-    static let secondary = Color.white.opacity(0.55)
-    static let tertiary = Color.white.opacity(0.4)
+    // 低饱和品牌点
+    static let claude = Color(red: 0.78, green: 0.52, blue: 0.44)
+    static let codex = Color(red: 0.42, green: 0.64, blue: 0.57)
+    // 浅色主题：文字 / 轨道 / 卡片底
+    static let textPrimary = Color(red: 0.15, green: 0.15, blue: 0.17)
+    static let secondary = Color(red: 0.46, green: 0.47, blue: 0.51)
+    static let tertiary = Color(red: 0.64, green: 0.65, blue: 0.69)
+    static let track = Color(red: 0.90, green: 0.90, blue: 0.92)
+    static let cardBackground = Color(red: 0.99, green: 0.99, blue: 0.985)
 }
 
 func severityColor(_ percent: Int) -> Color {
-    if percent >= 80 { return Color(red: 0.93, green: 0.30, blue: 0.30) }   // 红
-    if percent >= 50 { return Color(red: 0.96, green: 0.62, blue: 0.15) }   // 黄
-    return Color(red: 0.30, green: 0.78, blue: 0.50)                        // 绿
+    if percent >= 80 { return Color(red: 0.80, green: 0.45, blue: 0.42) }   // 柔红
+    if percent >= 50 { return Color(red: 0.85, green: 0.66, blue: 0.36) }   // 柔黄
+    return Color(red: 0.46, green: 0.66, blue: 0.49)                        // 柔绿
 }
 
 func resetCountdown(_ unix: Int?) -> String {
@@ -64,7 +68,7 @@ struct ProductHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle().fill(color).frame(width: 7, height: 7)
-            Text(name).font(.system(size: 12, weight: .medium)).foregroundColor(.white)
+            Text(name).font(.system(size: 12, weight: .medium)).foregroundColor(Palette.textPrimary)
             if let plan = plan {
                 Spacer(minLength: 0)
                 Text(plan).font(.system(size: 10)).foregroundColor(Palette.tertiary)
@@ -87,7 +91,7 @@ struct MetricRow: View {
                 Text(label).font(.system(size: 11)).foregroundColor(Palette.secondary)
                 Spacer()
                 Text(window.map { "\($0.percent)%" } ?? "—")
-                    .font(.system(size: 11, weight: .medium)).foregroundColor(.white)
+                    .font(.system(size: 11, weight: .medium)).foregroundColor(Palette.textPrimary)
             }
             UsageBar(percent: window?.percent ?? 0, height: barHeight)
             if showReset, let w = window {
@@ -118,7 +122,7 @@ struct SmallMetric: View {
             Text(label).font(.system(size: 11)).foregroundColor(Palette.secondary).frame(width: 16, alignment: .leading)
             UsageBar(percent: window?.percent ?? 0, height: 5)
             Text(window.map { "\($0.percent)%" } ?? "—")
-                .font(.system(size: 11, weight: .medium)).foregroundColor(.white)
+                .font(.system(size: 11, weight: .medium)).foregroundColor(Palette.textPrimary)
                 .frame(width: 30, alignment: .trailing)
         }
     }
