@@ -5,10 +5,12 @@ import AppKit
 @main
 struct AIUsageApp: App {
     var body: some Scene {
-        WindowGroup("AI 用量") {
+        MenuBarExtra {
             ContentView()
+        } label: {
+            Image("MenuBarIcon")
         }
-        .windowResizability(.contentSize)
+        .menuBarExtraStyle(.window)
     }
 }
 
@@ -26,7 +28,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             ZStack {
                 Palette.cardBackground
                 LargeView(snapshot: snapshot)
@@ -43,23 +45,30 @@ struct ContentView: View {
                 Button {
                     Task { await refresh() }
                 } label: {
-                    Label("刷新", systemImage: "arrow.clockwise")
+                    Image(systemName: "arrow.clockwise")
                 }
                 .disabled(refreshing)
+                .help("刷新")
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Image(systemName: "power")
+                }
+                .help("退出")
             }
 
             if loadedOnce && !connected {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("后台取数服务未运行。在终端执行一次安装脚本：")
+                    Text("后台取数服务未运行。在项目目录执行一次安装脚本：")
                         .font(.system(size: 12)).foregroundColor(.secondary)
                     HStack {
-                        Text("bash ~/AIUsageWidget/agent/install.sh")
+                        Text("bash agent/install.sh")
                             .font(.system(size: 12, design: .monospaced))
                             .textSelection(.enabled)
                         Spacer()
                         Button("复制") {
                             NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString("bash ~/AIUsageWidget/agent/install.sh", forType: .string)
+                            NSPasteboard.general.setString("bash agent/install.sh", forType: .string)
                         }
                     }
                     .padding(8)

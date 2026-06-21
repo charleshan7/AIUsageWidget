@@ -1,17 +1,33 @@
 import SwiftUI
+import AppKit
 
 // ---- 配色与格式化 ----
 
+extension Color {
+    /// 跟随系统外观（浅色/深色，系统可设为按时间自动）自动切换的颜色。
+    init(light: Color, dark: Color) {
+        self.init(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? NSColor(dark) : NSColor(light)
+        })
+    }
+}
+
 enum Palette {
-    // 低饱和品牌点
+    // 品牌点（低饱和，两种模式通用）
     static let claude = Color(red: 0.78, green: 0.52, blue: 0.44)
     static let codex = Color(red: 0.42, green: 0.64, blue: 0.57)
-    // 浅色主题：文字 / 轨道 / 卡片底
-    static let textPrimary = Color(red: 0.15, green: 0.15, blue: 0.17)
-    static let secondary = Color(red: 0.46, green: 0.47, blue: 0.51)
-    static let tertiary = Color(red: 0.64, green: 0.65, blue: 0.69)
-    static let track = Color(red: 0.90, green: 0.90, blue: 0.92)
-    static let cardBackground = Color(red: 0.99, green: 0.99, blue: 0.985)
+    // 中性色：白天浅、晚上深，跟随系统外观
+    static let textPrimary = Color(light: Color(red: 0.15, green: 0.15, blue: 0.17),
+                                   dark: Color(red: 0.95, green: 0.95, blue: 0.96))
+    static let secondary = Color(light: Color(red: 0.46, green: 0.47, blue: 0.51),
+                                 dark: Color(red: 0.62, green: 0.63, blue: 0.68))
+    static let tertiary = Color(light: Color(red: 0.64, green: 0.65, blue: 0.69),
+                                dark: Color(red: 0.45, green: 0.46, blue: 0.50))
+    static let track = Color(light: Color(red: 0.90, green: 0.90, blue: 0.92),
+                             dark: Color(red: 0.22, green: 0.22, blue: 0.26))
+    static let cardBackground = Color(light: Color(red: 0.99, green: 0.99, blue: 0.985),
+                                      dark: Color(red: 0.08, green: 0.085, blue: 0.11))
 }
 
 func severityColor(_ percent: Int) -> Color {

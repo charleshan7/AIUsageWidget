@@ -28,7 +28,8 @@ USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 TOKEN_URL = "https://api.anthropic.com/v1/oauth/token"
 OAUTH_BETA = "oauth-2025-04-20"
 
-DEFAULTS = {"port": 47615, "proxy": "http://127.0.0.1:7897", "cache_seconds": 60}
+# 公开默认：直连（不走代理）。需要代理的用户在 config.json 或 HTTPS_PROXY 里填。
+DEFAULTS = {"port": 47615, "proxy": None, "cache_seconds": 60}
 
 # ---------------------------------------------------------------- 配置
 

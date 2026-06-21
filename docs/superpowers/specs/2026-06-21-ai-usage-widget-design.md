@@ -58,7 +58,8 @@ Keychain(Claude Code-       │   · 读 Codex 最新 rate_limits         (URLSe
 2. **LaunchAgent** `~/Library/LaunchAgents/com.charles.aiusage.agent.plist` —
    `RunAtLoad` + `KeepAlive`，登录自启、保活；日志输出到 `~/Library/Logs/ai-usage-agent.log`。
 3. **Widget 扩展** — 照搬 WorldCup 的 Provider/RefreshIntent/卡片结构，endpoint 改为本地。
-4. **宿主 App** — 极简窗口：4 个数字 + Agent 状态 +「安装 Agent / 刷新」按钮，`LSUIElement`。
+4. **菜单栏 App** — `MenuBarExtra` 常驻菜单栏（`LSUIElement`，无 Dock 图标），点击图标弹出
+   数据面板（4 个数字 + Agent 状态 + 刷新 + 退出）。两道横条 app 图标 + 单色菜单栏图标。
 
 ### 统一 JSON 契约（Agent → 前端）
 
@@ -96,7 +97,7 @@ Keychain(Claude Code-       │   · 读 Codex 最新 rate_limits         (URLSe
 - **中卡**：左右两列 Claude / Codex，各含 5h、周进度条 + 百分比 + 「约 X 小时后重置」。
 - **大卡**：上下两段，进度条更大，含百分比 + 「X 小时后重置 · 绝对时间」。
 - 右上角放刷新按钮（`AppIntent`，复用 WorldCup 的 `RefreshIntent` 模式）。
-- 背景为近白色（`containerBackground` 浅色），文字深色，三档严重度颜色用低饱和柔和色。
+- 背景跟随系统明暗外观（浅色近白底 / 深色近黑底），文字与中性色自适应；三档严重度颜色低饱和。
 
 ### 异常态
 
