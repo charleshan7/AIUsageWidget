@@ -32,7 +32,13 @@ Keychain(Claude 凭证)      ─┘   · Codex 读本地 session
 
 数据不出本机，无云端。
 
-## 安装
+## 下载安装（推荐）
+
+到 [Releases](https://github.com/charleshan7/AIUsageWidget/releases/latest) 下载 `AIUsageWidget-v*.dmg`：
+拖 App 到「应用程序」→ 右键运行「① 安装后台服务.command」→ 打开 App 并在桌面添加小组件。
+（详见 DMG 内「使用说明.txt」，含 Gatekeeper 解隔离与代理配置。）
+
+## 从源码构建
 
 需要 macOS 14+、[XcodeGen](https://github.com/yonsm/XcodeGen)（`brew install xcodegen`）、Xcode。
 
