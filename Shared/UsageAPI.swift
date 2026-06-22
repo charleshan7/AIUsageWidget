@@ -21,4 +21,25 @@ enum UsageAPI {
             return SharedStore.read() ?? .disconnected
         }
     }
+
+    private static var configEndpoint: String {
+        endpoint.replacingOccurrences(of: "/usage", with: "/config")
+    }
+
+    /// 读取当前外观偏好（"system"/"light"/"dark"）。
+    static func currentTheme() async -> String {
+        guard let url = URL(string: configEndpoint) else { return "system" }
+        var req = URLRequest(url: url); req.timeoutInterval = 5
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let theme = obj["theme"] as? String else { return "system" }
+        return theme
+    }
+
+    /// 设置外观偏好（写到 Agent，供桌面组件读取）。
+    static func setTheme(_ theme: String) async {
+        guard let url = URL(string: configEndpoint + "?theme=" + theme) else { return }
+        var req = URLRequest(url: url); req.timeoutInterval = 5
+        _ = try? await URLSession.shared.data(for: req)
+    }
 }

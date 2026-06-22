@@ -1,33 +1,54 @@
 import SwiftUI
-import AppKit
 
-// ---- 配色与格式化 ----
+// ---- 配色（浅/深两套，可被「外观」偏好强制覆盖）----
 
-extension Color {
-    /// 跟随系统外观（浅色/深色，系统可设为按时间自动）自动切换的颜色。
-    init(light: Color, dark: Color) {
-        self.init(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                ? NSColor(dark) : NSColor(light)
-        })
+struct Palette {
+    let claude: Color
+    let codex: Color
+    let textPrimary: Color
+    let secondary: Color
+    let tertiary: Color
+    let track: Color
+    let cardBackground: Color
+
+    static let light = Palette(
+        claude: Color(red: 0.78, green: 0.52, blue: 0.44),
+        codex: Color(red: 0.42, green: 0.64, blue: 0.57),
+        textPrimary: Color(red: 0.15, green: 0.15, blue: 0.17),
+        secondary: Color(red: 0.46, green: 0.47, blue: 0.51),
+        tertiary: Color(red: 0.64, green: 0.65, blue: 0.69),
+        track: Color(red: 0.90, green: 0.90, blue: 0.92),
+        cardBackground: Color(red: 0.99, green: 0.99, blue: 0.985))
+
+    static let dark = Palette(
+        claude: Color(red: 0.82, green: 0.56, blue: 0.48),
+        codex: Color(red: 0.46, green: 0.68, blue: 0.60),
+        textPrimary: Color(red: 0.95, green: 0.95, blue: 0.96),
+        secondary: Color(red: 0.62, green: 0.63, blue: 0.68),
+        tertiary: Color(red: 0.45, green: 0.46, blue: 0.50),
+        track: Color(red: 0.22, green: 0.22, blue: 0.26),
+        cardBackground: Color(red: 0.08, green: 0.085, blue: 0.11))
+
+    static func of(_ scheme: ColorScheme) -> Palette { scheme == .dark ? .dark : .light }
+}
+
+private struct PaletteKey: EnvironmentKey { static let defaultValue: Palette = .light }
+extension EnvironmentValues {
+    var palette: Palette {
+        get { self[PaletteKey.self] }
+        set { self[PaletteKey.self] = newValue }
     }
 }
 
-enum Palette {
-    // 品牌点（低饱和，两种模式通用）
-    static let claude = Color(red: 0.78, green: 0.52, blue: 0.44)
-    static let codex = Color(red: 0.42, green: 0.64, blue: 0.57)
-    // 中性色：白天浅、晚上深，跟随系统外观
-    static let textPrimary = Color(light: Color(red: 0.15, green: 0.15, blue: 0.17),
-                                   dark: Color(red: 0.95, green: 0.95, blue: 0.96))
-    static let secondary = Color(light: Color(red: 0.46, green: 0.47, blue: 0.51),
-                                 dark: Color(red: 0.62, green: 0.63, blue: 0.68))
-    static let tertiary = Color(light: Color(red: 0.64, green: 0.65, blue: 0.69),
-                                dark: Color(red: 0.45, green: 0.46, blue: 0.50))
-    static let track = Color(light: Color(red: 0.90, green: 0.90, blue: 0.92),
-                             dark: Color(red: 0.22, green: 0.22, blue: 0.26))
-    static let cardBackground = Color(light: Color(red: 0.99, green: 0.99, blue: 0.985),
-                                      dark: Color(red: 0.08, green: 0.085, blue: 0.11))
+/// 外观偏好（"system"/"light"/"dark"）→ 强制配色；nil 表示跟随系统。
+enum AppTheme {
+    static func scheme(_ raw: String?) -> ColorScheme? {
+        switch raw {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
+    }
 }
 
 func severityColor(_ percent: Int) -> Color {
@@ -69,12 +90,13 @@ func resetLine(_ w: UsageWindow, absolute: Bool) -> String {
 // ---- 基础组件 ----
 
 struct UsageBar: View {
+    @Environment(\.palette) private var palette
     let percent: Int
     var height: CGFloat = 6
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Palette.track)
+                Capsule().fill(palette.track)
                 Capsule().fill(severityColor(percent))
                     .frame(width: max(geo.size.width * CGFloat(min(max(percent, 0), 100)) / 100.0,
                                       percent > 0 ? 3 : 0))
@@ -85,19 +107,20 @@ struct UsageBar: View {
 }
 
 struct ProductHeader: View {
+    @Environment(\.palette) private var palette
     let name: String
     let color: Color
     var plan: String? = nil
     var body: some View {
         HStack(spacing: 6) {
             Circle().fill(color).frame(width: 7, height: 7)
-            Text(name).font(.system(size: 12, weight: .medium)).foregroundColor(Palette.textPrimary)
+            Text(name).font(.system(size: 12, weight: .medium)).foregroundColor(palette.textPrimary)
             if let plan = plan {
                 Text(plan.capitalized)
                     .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(Palette.secondary)
+                    .foregroundColor(palette.secondary)
                     .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Capsule().fill(Palette.track))
+                    .background(Capsule().fill(palette.track))
             }
             Spacer(minLength: 0)
         }
@@ -106,6 +129,7 @@ struct ProductHeader: View {
 
 // 一条带标签的指标行（中/大卡用）。
 struct MetricRow: View {
+    @Environment(\.palette) private var palette
     let label: String
     let window: UsageWindow?
     var showReset: Bool = true
@@ -115,15 +139,15 @@ struct MetricRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text(label).font(.system(size: 11)).foregroundColor(Palette.secondary)
+                Text(label).font(.system(size: 11)).foregroundColor(palette.secondary)
                 Spacer()
                 Text(window.map { "\($0.percent)%" } ?? "—")
-                    .font(.system(size: 11, weight: .medium)).foregroundColor(Palette.textPrimary)
+                    .font(.system(size: 11, weight: .medium)).foregroundColor(palette.textPrimary)
             }
             UsageBar(percent: window?.percent ?? 0, height: barHeight)
             if showReset, let w = window {
                 Text(resetLine(w, absolute: showAbsolute))
-                    .font(.system(size: 10)).foregroundColor(Palette.tertiary)
+                    .font(.system(size: 10)).foregroundColor(palette.tertiary)
             }
         }
     }
@@ -131,23 +155,25 @@ struct MetricRow: View {
 
 // 失败态占位。
 struct ProductError: View {
+    @Environment(\.palette) private var palette
     let message: String
     var body: some View {
-        Text(message).font(.system(size: 11)).foregroundColor(Palette.tertiary)
+        Text(message).font(.system(size: 11)).foregroundColor(palette.tertiary)
     }
 }
 
 // ---- 小卡 ----
 
 struct SmallMetric: View {
+    @Environment(\.palette) private var palette
     let label: String
     let window: UsageWindow?
     var body: some View {
         HStack(spacing: 6) {
-            Text(label).font(.system(size: 11)).foregroundColor(Palette.secondary).frame(width: 16, alignment: .leading)
+            Text(label).font(.system(size: 11)).foregroundColor(palette.secondary).frame(width: 16, alignment: .leading)
             UsageBar(percent: window?.percent ?? 0, height: 5)
             Text(window.map { "\($0.percent)%" } ?? "—")
-                .font(.system(size: 11, weight: .medium)).foregroundColor(Palette.textPrimary)
+                .font(.system(size: 11, weight: .medium)).foregroundColor(palette.textPrimary)
                 .lineLimit(1).minimumScaleFactor(0.8)
                 .frame(width: 40, alignment: .trailing)
         }
@@ -172,11 +198,12 @@ struct SmallProduct: View {
 }
 
 struct SmallView: View {
+    @Environment(\.palette) private var palette
     let snapshot: UsageSnapshot
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SmallProduct(name: "Claude", color: Palette.claude, product: snapshot.claude)
-            SmallProduct(name: "Codex", color: Palette.codex, product: snapshot.codex)
+            SmallProduct(name: "Claude", color: palette.claude, product: snapshot.claude)
+            SmallProduct(name: "Codex", color: palette.codex, product: snapshot.codex)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(12)
@@ -205,12 +232,13 @@ struct MediumColumn: View {
 }
 
 struct MediumView: View {
+    @Environment(\.palette) private var palette
     let snapshot: UsageSnapshot
     var body: some View {
         HStack(spacing: 16) {
-            MediumColumn(name: "Claude Code", color: Palette.claude, product: snapshot.claude)
-            Rectangle().fill(Palette.track).frame(width: 0.5)
-            MediumColumn(name: "Codex", color: Palette.codex, product: snapshot.codex)
+            MediumColumn(name: "Claude Code", color: palette.claude, product: snapshot.claude)
+            Rectangle().fill(palette.track).frame(width: 0.5)
+            MediumColumn(name: "Codex", color: palette.codex, product: snapshot.codex)
         }
         .padding(14)
     }
@@ -236,12 +264,13 @@ struct LargeSection: View {
 }
 
 struct LargeView: View {
+    @Environment(\.palette) private var palette
     let snapshot: UsageSnapshot
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            LargeSection(name: "Claude Code", color: Palette.claude, product: snapshot.claude)
-            Rectangle().fill(Palette.track).frame(height: 0.5)
-            LargeSection(name: "Codex", color: Palette.codex, product: snapshot.codex)
+            LargeSection(name: "Claude Code", color: palette.claude, product: snapshot.claude)
+            Rectangle().fill(palette.track).frame(height: 0.5)
+            LargeSection(name: "Codex", color: palette.codex, product: snapshot.codex)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

@@ -1,6 +1,8 @@
 import SwiftUI
 import WidgetKit
 import AppKit
+import Combine
+import ServiceManagement
 
 @main
 struct AIUsageApp: App {
@@ -15,11 +17,17 @@ struct AIUsageApp: App {
 }
 
 struct ContentView: View {
+    @Environment(\.colorScheme) private var systemScheme
     @State private var snapshot: UsageSnapshot = .sample
     @State private var refreshing = false
     @State private var loadedOnce = false
+    @State private var theme: String = "system"
+    @State private var launchAtLogin = false
+
+    private let timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     private var connected: Bool { snapshot.claude.ok || snapshot.codex.ok }
+    private var palette: Palette { Palette.of(AppTheme.scheme(theme) ?? systemScheme) }
 
     private var updatedText: String {
         let fmt = DateFormatter()
@@ -30,31 +38,36 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 12) {
             ZStack {
-                Palette.cardBackground
+                palette.cardBackground
                 LargeView(snapshot: snapshot)
             }
             .frame(width: 320, height: 290)
             .clipShape(RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Palette.track, lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(palette.track, lineWidth: 0.5))
+            .environment(\.palette, palette)
 
-            HStack(spacing: 10) {
-                Circle().fill(connected ? Color.green : Color.gray).frame(width: 7, height: 7)
-                Text(connected ? "已连接 · 更新于 \(updatedText)" : "未连接到本地 Agent")
-                    .font(.system(size: 12)).foregroundColor(.secondary)
-                Spacer()
-                Button {
-                    Task { await refresh() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
+            VStack(spacing: 10) {
+                HStack {
+                    Text("小组件外观").font(.system(size: 12))
+                    Spacer()
+                    Picker("", selection: $theme) {
+                        Text("跟随系统").tag("system")
+                        Text("白").tag("light")
+                        Text("黑").tag("dark")
+                    }
+                    .pickerStyle(.segmented).labelsHidden().frame(width: 200)
                 }
-                .disabled(refreshing)
-                .help("刷新")
-                Button {
-                    NSApplication.shared.terminate(nil)
-                } label: {
-                    Image(systemName: "power")
+                HStack {
+                    Text("开机自启动").font(.system(size: 12))
+                    Spacer()
+                    Toggle("", isOn: $launchAtLogin).labelsHidden()
                 }
-                .help("退出")
+                HStack {
+                    Text(connected ? "运行时每 30 秒刷新 · \(updatedText)" : "未连接到本地 Agent")
+                        .font(.system(size: 11)).foregroundColor(.secondary)
+                    Spacer()
+                    Button("退出") { NSApplication.shared.terminate(nil) }
+                }
             }
 
             if loadedOnce && !connected {
@@ -79,7 +92,30 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(width: 360)
-        .task { await refresh() }
+        .preferredColorScheme(AppTheme.scheme(theme))
+        .task {
+            theme = await UsageAPI.currentTheme()
+            launchAtLogin = (SMAppService.mainApp.status == .enabled)
+            await refresh()
+        }
+        .onChange(of: theme) { _, newValue in
+            Task {
+                await UsageAPI.setTheme(newValue)
+                await refresh()
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+        }
+        .onChange(of: launchAtLogin) { _, on in
+            do {
+                if on { try SMAppService.mainApp.register() }
+                else { try SMAppService.mainApp.unregister() }
+            } catch {
+                launchAtLogin = (SMAppService.mainApp.status == .enabled)
+            }
+        }
+        .onReceive(timer) { _ in
+            Task { await refresh() }
+        }
     }
 
     private func refresh() async {

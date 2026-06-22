@@ -21,6 +21,7 @@ import subprocess
 import datetime
 import urllib.request
 import urllib.error
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 KEYCHAIN_SERVICE = "Claude Code-credentials"
@@ -249,6 +250,29 @@ class Snapshot:
         self.ts = now
         return self.payload
 
+# ---------------------------------------------------------------- UI 偏好
+
+UI_CONFIG = os.path.expanduser("~/.config/ai-usage-widget/ui.json")
+
+def read_theme():
+    try:
+        return json.load(open(UI_CONFIG)).get("theme", "system")
+    except Exception:
+        return "system"
+
+def write_theme(t):
+    if t not in ("system", "light", "dark"):
+        return
+    os.makedirs(os.path.dirname(UI_CONFIG), exist_ok=True)
+    data = {}
+    try:
+        data = json.load(open(UI_CONFIG))
+    except Exception:
+        pass
+    data["theme"] = t
+    with open(UI_CONFIG, "w") as f:
+        json.dump(data, f)
+
 # ---------------------------------------------------------------- HTTP
 
 def serve(cfg):
@@ -256,22 +280,35 @@ def serve(cfg):
     snap = Snapshot(cfg.get("cache_seconds", 60))
 
     class Handler(BaseHTTPRequestHandler):
+        def _json(self, obj):
+            body = json.dumps(obj).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):
-            if self.path.rstrip("/") not in ("/usage", ""):
-                self.send_response(404)
-                self.end_headers()
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path.rstrip("/")
+            if path == "/config":
+                q = urllib.parse.parse_qs(parsed.query)
+                if "theme" in q:
+                    write_theme(q["theme"][0])
+                self._json({"ok": True, "theme": read_theme()})
                 return
-            try:
-                body = json.dumps(snap.get(opener)).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-            except Exception as e:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(str(e).encode())
+            if path in ("/usage", ""):
+                try:
+                    payload = dict(snap.get(opener))
+                    payload["theme"] = read_theme()   # 不进缓存，改了立即生效
+                    self._json(payload)
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(str(e).encode())
+                return
+            self.send_response(404)
+            self.end_headers()
 
         def log_message(self, *args):
             pass
@@ -289,7 +326,8 @@ def main():
         opener = make_opener(cfg.get("proxy"))
         print(json.dumps({"updated": int(time.time()),
                           "claude": read_claude(opener),
-                          "codex": read_codex()}, indent=2, ensure_ascii=False))
+                          "codex": read_codex(),
+                          "theme": read_theme()}, indent=2, ensure_ascii=False))
         return
     serve(cfg)
 

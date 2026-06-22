@@ -31,6 +31,7 @@ struct UsageSnapshot: Codable, Hashable {
     let updated: Int
     let claude: ProductUsage
     let codex: ProductUsage
+    var theme: String? = nil   // "system" | "light" | "dark"
 }
 
 extension ProductUsage {

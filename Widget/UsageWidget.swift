@@ -46,28 +46,45 @@ struct UsageProvider: TimelineProvider {
 
 struct UsageWidgetEntryView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.colorScheme) private var systemScheme
     let entry: UsageEntry
+
+    private var palette: Palette {
+        Palette.of(AppTheme.scheme(entry.snapshot.theme) ?? systemScheme)
+    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            switch family {
-            case .systemSmall:
-                SmallView(snapshot: entry.snapshot)
-            case .systemLarge, .systemExtraLarge:
-                LargeView(snapshot: entry.snapshot)
-            default:
-                MediumView(snapshot: entry.snapshot)
+            Group {
+                switch family {
+                case .systemSmall:
+                    SmallView(snapshot: entry.snapshot)
+                case .systemLarge, .systemExtraLarge:
+                    LargeView(snapshot: entry.snapshot)
+                default:
+                    MediumView(snapshot: entry.snapshot)
+                }
             }
             Button(intent: RefreshUsageIntent()) {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(Palette.secondary)
+                    .foregroundColor(palette.secondary)
                     .padding(5)
-                    .background(Circle().fill(Palette.track))
+                    .background(Circle().fill(palette.track))
             }
             .buttonStyle(.plain)
             .padding(7)
         }
+        .environment(\.palette, palette)
+    }
+}
+
+// 容器背景跟随外观偏好（containerBackground 在配置层，需自行算 palette）。
+struct ContainerBG: View {
+    @Environment(\.colorScheme) private var systemScheme
+    let theme: String?
+    var body: some View {
+        Palette.of(AppTheme.scheme(theme) ?? systemScheme).cardBackground
     }
 }
 
@@ -77,7 +94,7 @@ struct AIUsageWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: UsageProvider()) { entry in
             UsageWidgetEntryView(entry: entry)
-                .containerBackground(Palette.cardBackground, for: .widget)
+                .containerBackground(for: .widget) { ContainerBG(theme: entry.snapshot.theme) }
         }
         .configurationDisplayName("AI 用量")
         .description("查看 Claude Code 与 Codex 的 5 小时 / 一周用量。")
