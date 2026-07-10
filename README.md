@@ -15,7 +15,7 @@
 
 | 工具 | 取数方式 | 支持 |
 |------|----------|------|
-| Codex | 读本地 `~/.codex/sessions` 的 `rate_limits` | ✅ ChatGPT 登录的 Plus / Pro / Business（百分比按各自套餐自动反映）；❌ 用 API key 按量付费的没有 5h/周窗口 |
+| Codex | 调 `chatgpt.com/backend-api/wham/usage`（凭证取自 `~/.codex/auth.json`，实时、按当前账号）；失败回退本地 `~/.codex/sessions` | ✅ ChatGPT 登录的 Plus / Pro / Business（按各自套餐自动反映）；❌ 用 API key 按量付费的没有 5h/周窗口 |
 | Claude Code | 调 `api.anthropic.com/api/oauth/usage`，凭证取自 Keychain | ✅ 订阅登录的 Pro / Max 5x / Max 20x / Team（按各自套餐自动反映，无需改代码）；❌ 纯 API/console 计费机制不同 |
 
 > 每个人读自己机器上的本地数据与凭证，百分比自动对应本人套餐。

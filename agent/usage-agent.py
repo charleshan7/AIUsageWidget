@@ -71,12 +71,69 @@ def iso_to_unix(s):
 
 # ---------------------------------------------------------------- Codex
 
-def read_codex():
-    """从最新的 Codex session 文件读取最后一条 rate_limits。"""
+CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+
+def read_codex(opener):
+    """优先调实时接口（当前账号权威值），失败再回退本地文件扫描。"""
+    live = _codex_live(opener)
+    return live if live is not None else _codex_from_files()
+
+
+def _codex_account_id(auth):
+    """从 id_token 解出 chatgpt_account_id（用于 ChatGPT-Account-Id 头选账号）。"""
+    try:
+        tok = auth["tokens"]["id_token"]
+        seg = tok.split(".")[1]
+        seg += "=" * (-len(seg) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(seg.encode()))
+        return payload.get("https://api.openai.com/auth", {}).get("chatgpt_account_id")
+    except Exception:
+        return None
+
+
+def _codex_live(opener):
+    """调 ChatGPT 后端的 wham/usage，拿当前账号的实时 5h / 周用量。"""
+    try:
+        auth = json.load(open(os.path.expanduser("~/.codex/auth.json")))
+        tok = auth.get("tokens", {}).get("access_token")
+        if not tok:
+            return None
+        headers = {"Authorization": "Bearer %s" % tok, "User-Agent": "codex-cli"}
+        acct = _codex_account_id(auth)
+        if acct:
+            headers["ChatGPT-Account-Id"] = acct
+        req = urllib.request.Request(CODEX_USAGE_URL, headers=headers)
+        j = _open_json(opener, req)
+        rl = j.get("rate_limit") or {}
+        return {"ok": True,
+                "plan": j.get("plan_type"),
+                "five_hour": _codex_live_win(rl.get("primary_window")),
+                "seven_day": _codex_live_win(rl.get("secondary_window"))}
+    except Exception:
+        return None
+
+
+def _codex_live_win(w):
+    if not isinstance(w, dict):
+        return None
+    ra = w.get("reset_at")
+    return {"percent": round(w.get("used_percent") or 0),
+            "resets_at": int(ra) if ra else None}
+
+
+def _codex_from_files():
+    """回退：全局取「事件时间戳最新」的可用 primary/secondary。
+
+    多个并发会话时，文件 mtime 最新的那条可能是额度耗尽写的 primary/secondary 全 null
+    的退化记录（limit_id="premium"），或比别的会话更旧。所以按每条 rate_limits 事件自身
+    的 timestamp 全局取最新。注意：本地文件不带账号 id，多账号时可能串到别的账号，
+    仅作为实时接口失败时的兜底。
+    """
     pattern = os.path.expanduser("~/.codex/sessions/**/*.jsonl")
     files = sorted(glob.glob(pattern, recursive=True), key=os.path.getmtime, reverse=True)
+    best_p = ("", None)   # (timestamp, primary window)
+    best_s = ("", None)
     for path in files[:40]:
-        last = None
         try:
             with open(path, errors="ignore") as fh:
                 for line in fh:
@@ -87,18 +144,32 @@ def read_codex():
                     except Exception:
                         continue
                     rl = _find_key(obj, "rate_limits")
-                    # 跳过 primary/secondary 都为 null 的退化条目（如额度耗尽时的
-                    # "premium" 记录），只取含可用窗口的最后一条。
-                    if isinstance(rl, dict) and (isinstance(rl.get("primary"), dict)
-                                                 or isinstance(rl.get("secondary"), dict)):
-                        last = rl
+                    if not isinstance(rl, dict):
+                        continue
+                    ts = obj.get("timestamp") or ""
+                    p, s = rl.get("primary"), rl.get("secondary")
+                    if isinstance(p, dict) and ts > best_p[0]:
+                        best_p = (ts, p)
+                    if isinstance(s, dict) and ts > best_s[0]:
+                        best_s = (ts, s)
         except Exception:
             continue
-        if last:
-            payload = _codex_payload(last)
-            payload["plan"] = _codex_plan()
-            return payload
-    return {"ok": False, "error": "无数据（还没用过 Codex？）"}
+    if best_p[1] is None and best_s[1] is None:
+        return {"ok": False, "error": "无数据（还没用过 Codex？）"}
+    return {"ok": True,
+            "five_hour": _codex_win(best_p[1]),
+            "seven_day": _codex_win(best_s[1]),
+            "plan": _codex_plan()}
+
+
+def _codex_win(w):
+    """Codex 窗口 → {percent, resets_at}；窗口已过重置点（旧快照作废）显示 0%。"""
+    if not isinstance(w, dict):
+        return None
+    ra = int(w["resets_at"]) if w.get("resets_at") else None
+    if ra is not None and ra < time.time():
+        return {"percent": 0, "resets_at": None}
+    return {"percent": round(w.get("used_percent") or 0), "resets_at": ra}
 
 
 def _codex_plan():
@@ -115,19 +186,6 @@ def _codex_plan():
     except Exception:
         return None
 
-def _codex_payload(rl):
-    def win(w):
-        if not isinstance(w, dict):
-            return None
-        ra = int(w["resets_at"]) if w.get("resets_at") else None
-        # 窗口已过重置点：Codex 的百分比是上次调用时的快照，过点后那条已作废，
-        # 实际已重置为 0（用户这段时间没再用 Codex，所以没有新快照）。
-        if ra is not None and ra < time.time():
-            return {"percent": 0, "resets_at": None}
-        return {"percent": round(w.get("used_percent") or 0), "resets_at": ra}
-    return {"ok": True,
-            "five_hour": win(rl.get("primary")),
-            "seven_day": win(rl.get("secondary"))}
 
 def _find_key(o, key):
     if isinstance(o, dict):
@@ -172,6 +230,20 @@ def _keychain_write(acct, cred):
     if r.returncode != 0:
         sys.stderr.write("写回 Keychain 失败: %s\n" % r.stderr)
 
+def _open_json(opener, req, attempts=3):
+    """打开请求并解析 JSON；对连接级抖动（SSL/超时/代理断连）重试，HTTP 错误不重试。"""
+    last = None
+    for i in range(attempts):
+        try:
+            with opener.open(req, timeout=25) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError:
+            raise
+        except Exception as e:
+            last = e
+            time.sleep(0.5 * (i + 1))
+    raise last
+
 def _refresh(opener, refresh_token):
     body = json.dumps({"grant_type": "refresh_token",
                        "refresh_token": refresh_token,
@@ -179,8 +251,7 @@ def _refresh(opener, refresh_token):
     req = urllib.request.Request(TOKEN_URL, data=body,
                                  headers={"Content-Type": "application/json",
                                           "User-Agent": "ai-usage-agent/1.0"})
-    with opener.open(req, timeout=25) as r:
-        return json.loads(r.read().decode())
+    return _open_json(opener, req)
 
 def read_claude(opener):
     try:
@@ -204,8 +275,7 @@ def read_claude(opener):
             "Authorization": "Bearer %s" % oauth["accessToken"],
             "anthropic-beta": OAUTH_BETA,
             "User-Agent": "ai-usage-agent/1.0"})
-        with opener.open(req, timeout=25) as r:
-            usage = json.loads(r.read().decode())
+        usage = _open_json(opener, req)
         return {"ok": True,
                 "plan": oauth.get("subscriptionType"),
                 "five_hour": _claude_win(usage.get("five_hour")),
@@ -236,7 +306,7 @@ class Snapshot:
         if self.payload and now - self.ts < self.cache_seconds:
             return self.payload
         claude = read_claude(opener)
-        codex = read_codex()
+        codex = read_codex(opener)
         # 取数失败时复用上次成功值，避免卡片闪空
         for key, val in (("claude", claude), ("codex", codex)):
             if val.get("ok"):
@@ -328,7 +398,7 @@ def main():
         opener = make_opener(cfg.get("proxy"))
         print(json.dumps({"updated": int(time.time()),
                           "claude": read_claude(opener),
-                          "codex": read_codex(),
+                          "codex": read_codex(opener),
                           "theme": read_theme()}, indent=2, ensure_ascii=False))
         return
     serve(cfg)
