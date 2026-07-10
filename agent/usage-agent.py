@@ -294,12 +294,31 @@ def _claude_win(w):
 
 # ---------------------------------------------------------------- 合并 + 缓存
 
+LAST_GOOD_PATH = os.path.expanduser("~/.config/ai-usage-widget/last-good.json")
+
 class Snapshot:
     def __init__(self, cache_seconds):
         self.cache_seconds = cache_seconds
         self.payload = None
         self.ts = 0
-        self.last_good = {"claude": None, "codex": None}
+        # 上次成功值落盘，重启/429/断网时兜底展示（略旧胜过报错）
+        self.last_good = self._load()
+
+    def _load(self):
+        try:
+            with open(LAST_GOOD_PATH) as f:
+                d = json.load(f)
+            return {"claude": d.get("claude"), "codex": d.get("codex")}
+        except Exception:
+            return {"claude": None, "codex": None}
+
+    def _save(self):
+        try:
+            os.makedirs(os.path.dirname(LAST_GOOD_PATH), exist_ok=True)
+            with open(LAST_GOOD_PATH, "w") as f:
+                json.dump(self.last_good, f)
+        except Exception:
+            pass
 
     def get(self, opener):
         now = time.time()
@@ -307,10 +326,12 @@ class Snapshot:
             return self.payload
         claude = read_claude(opener)
         codex = read_codex(opener)
-        # 取数失败时复用上次成功值，避免卡片闪空
+        # 取数失败（429/断网/未登录）时复用上次成功值，避免卡片报错/闪空
+        changed = False
         for key, val in (("claude", claude), ("codex", codex)):
             if val.get("ok"):
                 self.last_good[key] = val
+                changed = True
             elif self.last_good[key]:
                 val = dict(self.last_good[key])
                 val["stale"] = True
@@ -318,6 +339,8 @@ class Snapshot:
                     claude = val
                 else:
                     codex = val
+        if changed:
+            self._save()
         self.payload = {"updated": int(now), "claude": claude, "codex": codex}
         self.ts = now
         return self.payload
