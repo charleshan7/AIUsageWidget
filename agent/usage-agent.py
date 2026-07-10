@@ -305,8 +305,16 @@ CLAUDE_PRICES = {
     "fable":  (10.0, 12.5, 1.0, 50.0),
     "mythos": (10.0, 12.5, 1.0, 50.0),
 }
-# Codex(GPT-5 系)估算单价：(未缓存输入, 缓存读, 输出)
-CODEX_PRICE = (1.25, 0.125, 10.0)
+# Codex 单价（OpenAI 官方牌价 2026-07 校准）：(未缓存输入, 缓存读, 输出)
+# 按最长匹配：模型名包含 key 即用该价；找不到用 "" 默认档
+CODEX_PRICES = {
+    "gpt-5.6-terra": (2.5, 0.25, 15.0),
+    "gpt-5.6-luna": (1.0, 0.1, 6.0),
+    "gpt-5.6": (5.0, 0.5, 30.0),   # sol 与裸 5.6 同价
+    "gpt-5.5": (5.0, 0.5, 30.0),
+    "codex": (1.75, 0.175, 14.0),  # gpt-5.x-codex 系
+    "": (5.0, 0.5, 30.0),
+}
 
 # 套餐月费（USD），用于「羊毛进度」
 CLAUDE_SUB_PRICE = {"pro": 20, "max": 100, "max_5x": 100, "max_20x": 200, "team": 30}
@@ -321,9 +329,15 @@ def _local_date(iso):
     return "%04d-%02d-%02d" % (t.tm_year, t.tm_mon, t.tm_mday)
 
 
-def _claude_file_days(path):
-    """Claude Code session 文件 → {日期: [tokens, cost]}（按消息 model 计价）。"""
-    days = {}
+def _claude_file_msgs(path):
+    """Claude Code session 文件 → {message_id: [日期, tokens, cost]}。
+
+    同一条消息会被写成多行（流式分块）、还会被复制进续接/compact 的新文件，
+    直接累加会虚高 ~60%。这里按 message.id 收敛（同 id 取 tokens 最大的一条
+    ≈ 最终态），跨文件去重在合并阶段做。跳过 synthetic 合成消息。
+    """
+    msgs = {}
+    n = 0
     with open(path, errors="ignore") as fh:
         for line in fh:
             if '"usage"' not in line or '"assistant"' not in line:
@@ -338,6 +352,9 @@ def _claude_file_days(path):
             u = msg.get("usage")
             if not isinstance(u, dict):
                 continue
+            model = (msg.get("model") or "").lower()
+            if "synthetic" in model:
+                continue
             d = _local_date(o.get("timestamp") or "")
             if not d:
                 continue
@@ -345,14 +362,16 @@ def _claude_file_days(path):
             cw = u.get("cache_creation_input_tokens") or 0
             cr = u.get("cache_read_input_tokens") or 0
             out = u.get("output_tokens") or 0
-            model = (msg.get("model") or "").lower()
             p = next((v for k, v in CLAUDE_PRICES.items() if k in model),
                      CLAUDE_PRICES["opus"])
             cost = (unc * p[0] + cw * p[1] + cr * p[2] + out * p[3]) / 1e6
-            rec = days.setdefault(d, [0, 0.0])
-            rec[0] += unc + cw + cr + out
-            rec[1] += cost
-    return days
+            tokens = unc + cw + cr + out
+            n += 1
+            mid = msg.get("id") or "~%s:%d" % (os.path.basename(path), n)
+            cur = msgs.get(mid)
+            if cur is None or tokens > cur[1]:
+                msgs[mid] = [d, tokens, cost]
+    return msgs
 
 
 def _codex_file_days(path):
@@ -360,18 +379,31 @@ def _codex_file_days(path):
 
     total_token_usage 是会话内累计值，用相邻两条的差值归属到事件日期，
     对重复/缺失事件都稳健（cached_input_tokens 是 input_tokens 的子集）。
+    模型跟随 turn_context 变化，按当时模型计价。
     """
     days = {}
     prev = None
+    price = CODEX_PRICES[""]
     with open(path, errors="ignore") as fh:
         for line in fh:
-            if "total_token_usage" not in line:
+            has_usage = "total_token_usage" in line
+            if not has_usage and '"turn_context"' not in line and '"model"' not in line:
                 continue
             try:
                 o = json.loads(line)
             except Exception:
                 continue
-            info = (o.get("payload") or {}).get("info") or {}
+            p = o.get("payload") or {}
+            model = p.get("model") if isinstance(p.get("model"), str) else \
+                (p.get("turn_context") or {}).get("model") if isinstance(p.get("turn_context"), dict) else None
+            if isinstance(model, str):
+                m = model.lower()
+                price = next((v for k, v in sorted(CODEX_PRICES.items(),
+                             key=lambda kv: -len(kv[0])) if k and k in m),
+                             CODEX_PRICES[""])
+            if not has_usage:
+                continue
+            info = p.get("info") or {}
             tot = info.get("total_token_usage")
             if not isinstance(tot, dict):
                 continue
@@ -391,16 +423,16 @@ def _codex_file_days(path):
             if not d:
                 continue
             unc = max(0, d_in - d_cached)
-            cost = (unc * CODEX_PRICE[0] + d_cached * CODEX_PRICE[1]
-                    + d_out * CODEX_PRICE[2]) / 1e6
+            cost = (unc * price[0] + d_cached * price[1]
+                    + d_out * price[2]) / 1e6
             rec = days.setdefault(d, [0, 0.0])
             rec[0] += d_in + d_out
             rec[1] += cost
     return days
 
 
-def _scan_product(product, pattern, parser, cache):
-    """按文件 (mtime,size) 增量扫描，未变的文件直接用缓存的日聚合。"""
+def _scan_files(product, pattern, parser, cache):
+    """按文件 (mtime,size) 增量扫描；未变的文件直接用缓存结果。"""
     old = cache.get(product) or {}
     live = {}
     for path in glob.glob(os.path.expanduser(pattern), recursive=True):
@@ -414,17 +446,41 @@ def _scan_product(product, pattern, parser, cache):
             live[path] = rec
         else:
             try:
-                live[path] = {"sig": sig, "days": parser(path)}
+                live[path] = {"sig": sig, "data": parser(path)}
             except Exception:
                 continue
     cache[product] = live
-    merged = {}
+    return live
+
+
+def _claude_days(cache):
+    """跨文件按 message_id 全局去重后聚合成 {日期: [tokens, cost]}。"""
+    live = _scan_files("claude", "~/.claude/projects/**/*.jsonl",
+                       _claude_file_msgs, cache)
+    best = {}
     for rec in live.values():
-        for d, v in rec["days"].items():
-            m = merged.setdefault(d, [0, 0.0])
+        for mid, v in rec["data"].items():
+            cur = best.get(mid)
+            if cur is None or v[1] > cur[1]:
+                best[mid] = v
+    days = {}
+    for v in best.values():
+        m = days.setdefault(v[0], [0, 0.0])
+        m[0] += v[1]
+        m[1] += v[2]
+    return days
+
+
+def _codex_days(cache):
+    live = _scan_files("codex", "~/.codex/sessions/**/*.jsonl",
+                       _codex_file_days, cache)
+    days = {}
+    for rec in live.values():
+        for d, v in rec["data"].items():
+            m = days.setdefault(d, [0, 0.0])
             m[0] += v[0]
             m[1] += v[1]
-    return merged
+    return days
 
 
 def _buckets(days):
@@ -453,16 +509,18 @@ def _buckets(days):
 STATS = {"data": None, "ts": 0}
 
 
+CACHE_VER = 2   # 结构变更时递增，旧缓存自动作废重算
+
 def compute_stats():
     try:
         with open(STATS_CACHE) as f:
             cache = json.load(f)
     except Exception:
         cache = {}
-    claude = _buckets(_scan_product(
-        "claude", "~/.claude/projects/**/*.jsonl", _claude_file_days, cache))
-    codex = _buckets(_scan_product(
-        "codex", "~/.codex/sessions/**/*.jsonl", _codex_file_days, cache))
+    if cache.get("ver") != CACHE_VER:
+        cache = {"ver": CACHE_VER}
+    claude = _buckets(_claude_days(cache))
+    codex = _buckets(_codex_days(cache))
     try:
         os.makedirs(os.path.dirname(STATS_CACHE), exist_ok=True)
         with open(STATS_CACHE, "w") as f:
