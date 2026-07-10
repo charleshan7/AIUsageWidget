@@ -87,6 +87,98 @@ func resetLine(_ w: UsageWindow, absolute: Bool) -> String {
                     : resetCountdown(w.resetsAt)
 }
 
+// ---- Token 统计格式化 ----
+
+func fmtTokens(_ n: Int) -> String {
+    let d = Double(n)
+    if d >= 1e9 { return String(format: "%.2fB", d / 1e9) }
+    if d >= 1e6 { return String(format: "%.1fM", d / 1e6) }
+    if d >= 1e3 { return String(format: "%.1fK", d / 1e3) }
+    return "\(n)"
+}
+
+func fmtCost(_ c: Double) -> String {
+    if c >= 100 { return String(format: "$%.0f", c) }
+    if c >= 1 { return String(format: "$%.1f", c) }
+    return String(format: "$%.2f", c)
+}
+
+// ---- Token 统计区块（菜单栏面板用）----
+
+struct StatCell: View {
+    @Environment(\.palette) private var palette
+    let bucket: StatBucket?
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 1) {
+            Text(bucket.map { fmtTokens($0.tokens) } ?? "—")
+                .font(.system(size: 11, weight: .medium)).foregroundColor(palette.textPrimary)
+            Text(bucket.map { fmtCost($0.cost) } ?? "")
+                .font(.system(size: 9)).foregroundColor(palette.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+}
+
+struct StatsSection: View {
+    @Environment(\.palette) private var palette
+    let stats: UsageStats
+
+    private func woolText(_ s: ProductStats?) -> String? {
+        guard let cost = s?.monthCost else { return nil }
+        if let sub = s?.subPrice, sub > 0 {
+            return "\(fmtCost(cost))（\(String(format: "%.1f", cost / sub))× 订阅）"
+        }
+        return fmtCost(cost)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Token 消耗（API 等值估算）")
+                    .font(.system(size: 11, weight: .medium)).foregroundColor(palette.secondary)
+                Spacer()
+                Text("今日").font(.system(size: 10)).foregroundColor(palette.tertiary)
+                    .frame(width: 62, alignment: .trailing)
+                Text("7 天").font(.system(size: 10)).foregroundColor(palette.tertiary)
+                    .frame(width: 62, alignment: .trailing)
+                Text("累计").font(.system(size: 10)).foregroundColor(palette.tertiary)
+                    .frame(width: 62, alignment: .trailing)
+            }
+            statRow(name: "Claude", color: palette.claude, s: stats.claude)
+            statRow(name: "Codex", color: palette.codex, s: stats.codex)
+            if woolText(stats.claude) != nil || woolText(stats.codex) != nil {
+                HStack(spacing: 6) {
+                    Text("本月羊毛").font(.system(size: 10)).foregroundColor(palette.tertiary)
+                    if let w = woolText(stats.claude) {
+                        Text("Claude \(w)").font(.system(size: 10)).foregroundColor(palette.secondary)
+                    }
+                    if let w = woolText(stats.codex) {
+                        Text("Codex \(w)").font(.system(size: 10)).foregroundColor(palette.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 1)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(palette.cardBackground))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(palette.track, lineWidth: 0.5))
+    }
+
+    private func statRow(name: String, color: Color, s: ProductStats?) -> some View {
+        HStack {
+            HStack(spacing: 5) {
+                Circle().fill(color).frame(width: 6, height: 6)
+                Text(name).font(.system(size: 11, weight: .medium)).foregroundColor(palette.textPrimary)
+            }
+            Spacer()
+            StatCell(bucket: s?.today).frame(width: 62)
+            StatCell(bucket: s?.week).frame(width: 62)
+            StatCell(bucket: s?.total).frame(width: 62)
+        }
+    }
+}
+
 // ---- 基础组件 ----
 
 struct UsageBar: View {

@@ -17,6 +17,7 @@ import time
 import glob
 import base64
 import getpass
+import threading
 import subprocess
 import datetime
 import urllib.request
@@ -292,6 +293,194 @@ def _claude_win(w):
     return {"percent": round(w.get("utilization") or 0),
             "resets_at": iso_to_unix(w.get("resets_at"))}
 
+# ------------------------------------------------- Token 统计与成本估算
+
+STATS_CACHE = os.path.expanduser("~/.config/ai-usage-widget/token-cache.json")
+
+# Claude 各模型单价（USD / 1M tokens）：(未缓存输入, 缓存写(1.25x), 缓存读(0.1x), 输出)
+CLAUDE_PRICES = {
+    "opus":   (5.0, 6.25, 0.5, 25.0),
+    "sonnet": (3.0, 3.75, 0.3, 15.0),
+    "haiku":  (1.0, 1.25, 0.1, 5.0),
+    "fable":  (10.0, 12.5, 1.0, 50.0),
+    "mythos": (10.0, 12.5, 1.0, 50.0),
+}
+# Codex(GPT-5 系)估算单价：(未缓存输入, 缓存读, 输出)
+CODEX_PRICE = (1.25, 0.125, 10.0)
+
+# 套餐月费（USD），用于「羊毛进度」
+CLAUDE_SUB_PRICE = {"pro": 20, "max": 100, "max_5x": 100, "max_20x": 200, "team": 30}
+CODEX_SUB_PRICE = {"plus": 20, "pro": 200, "business": 25, "team": 25}
+
+
+def _local_date(iso):
+    u = iso_to_unix(iso)
+    if u is None:
+        return None
+    t = time.localtime(u)
+    return "%04d-%02d-%02d" % (t.tm_year, t.tm_mon, t.tm_mday)
+
+
+def _claude_file_days(path):
+    """Claude Code session 文件 → {日期: [tokens, cost]}（按消息 model 计价）。"""
+    days = {}
+    with open(path, errors="ignore") as fh:
+        for line in fh:
+            if '"usage"' not in line or '"assistant"' not in line:
+                continue
+            try:
+                o = json.loads(line)
+            except Exception:
+                continue
+            if o.get("type") != "assistant":
+                continue
+            msg = o.get("message") or {}
+            u = msg.get("usage")
+            if not isinstance(u, dict):
+                continue
+            d = _local_date(o.get("timestamp") or "")
+            if not d:
+                continue
+            unc = u.get("input_tokens") or 0
+            cw = u.get("cache_creation_input_tokens") or 0
+            cr = u.get("cache_read_input_tokens") or 0
+            out = u.get("output_tokens") or 0
+            model = (msg.get("model") or "").lower()
+            p = next((v for k, v in CLAUDE_PRICES.items() if k in model),
+                     CLAUDE_PRICES["opus"])
+            cost = (unc * p[0] + cw * p[1] + cr * p[2] + out * p[3]) / 1e6
+            rec = days.setdefault(d, [0, 0.0])
+            rec[0] += unc + cw + cr + out
+            rec[1] += cost
+    return days
+
+
+def _codex_file_days(path):
+    """Codex session 文件 → {日期: [tokens, cost]}。
+
+    total_token_usage 是会话内累计值，用相邻两条的差值归属到事件日期，
+    对重复/缺失事件都稳健（cached_input_tokens 是 input_tokens 的子集）。
+    """
+    days = {}
+    prev = None
+    with open(path, errors="ignore") as fh:
+        for line in fh:
+            if "total_token_usage" not in line:
+                continue
+            try:
+                o = json.loads(line)
+            except Exception:
+                continue
+            info = (o.get("payload") or {}).get("info") or {}
+            tot = info.get("total_token_usage")
+            if not isinstance(tot, dict):
+                continue
+            cur = (tot.get("input_tokens") or 0,
+                   tot.get("cached_input_tokens") or 0,
+                   tot.get("output_tokens") or 0)
+            if prev is None:
+                d_in, d_cached, d_out = cur
+            else:
+                d_in = max(0, cur[0] - prev[0])
+                d_cached = max(0, cur[1] - prev[1])
+                d_out = max(0, cur[2] - prev[2])
+            prev = cur
+            if d_in == 0 and d_out == 0:
+                continue
+            d = _local_date(o.get("timestamp") or "")
+            if not d:
+                continue
+            unc = max(0, d_in - d_cached)
+            cost = (unc * CODEX_PRICE[0] + d_cached * CODEX_PRICE[1]
+                    + d_out * CODEX_PRICE[2]) / 1e6
+            rec = days.setdefault(d, [0, 0.0])
+            rec[0] += d_in + d_out
+            rec[1] += cost
+    return days
+
+
+def _scan_product(product, pattern, parser, cache):
+    """按文件 (mtime,size) 增量扫描，未变的文件直接用缓存的日聚合。"""
+    old = cache.get(product) or {}
+    live = {}
+    for path in glob.glob(os.path.expanduser(pattern), recursive=True):
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        sig = [int(st.st_mtime), st.st_size]
+        rec = old.get(path)
+        if rec and rec.get("sig") == sig:
+            live[path] = rec
+        else:
+            try:
+                live[path] = {"sig": sig, "days": parser(path)}
+            except Exception:
+                continue
+    cache[product] = live
+    merged = {}
+    for rec in live.values():
+        for d, v in rec["days"].items():
+            m = merged.setdefault(d, [0, 0.0])
+            m[0] += v[0]
+            m[1] += v[1]
+    return merged
+
+
+def _buckets(days):
+    now = time.localtime()
+    today = "%04d-%02d-%02d" % (now.tm_year, now.tm_mon, now.tm_mday)
+    wk = time.localtime(time.time() - 6 * 86400)
+    week_from = "%04d-%02d-%02d" % (wk.tm_year, wk.tm_mon, wk.tm_mday)
+    month = today[:7]
+    b = {"today": [0, 0.0], "week": [0, 0.0], "total": [0, 0.0]}
+    month_cost = 0.0
+    for d, v in days.items():
+        b["total"][0] += v[0]
+        b["total"][1] += v[1]
+        if d >= week_from:
+            b["week"][0] += v[0]
+            b["week"][1] += v[1]
+        if d == today:
+            b["today"][0] += v[0]
+            b["today"][1] += v[1]
+        if d[:7] == month:
+            month_cost += v[1]
+    return {k: {"tokens": v[0], "cost": round(v[1], 2)} for k, v in b.items()} | \
+           {"month_cost": round(month_cost, 2)}
+
+
+STATS = {"data": None, "ts": 0}
+
+
+def compute_stats():
+    try:
+        with open(STATS_CACHE) as f:
+            cache = json.load(f)
+    except Exception:
+        cache = {}
+    claude = _buckets(_scan_product(
+        "claude", "~/.claude/projects/**/*.jsonl", _claude_file_days, cache))
+    codex = _buckets(_scan_product(
+        "codex", "~/.codex/sessions/**/*.jsonl", _codex_file_days, cache))
+    try:
+        os.makedirs(os.path.dirname(STATS_CACHE), exist_ok=True)
+        with open(STATS_CACHE, "w") as f:
+            json.dump(cache, f)
+    except Exception:
+        pass
+    return {"claude": claude, "codex": codex}
+
+
+def stats_loop():
+    while True:
+        try:
+            STATS["data"] = compute_stats()
+            STATS["ts"] = time.time()
+        except Exception as e:
+            sys.stderr.write("token 统计失败: %r\n" % e)
+        time.sleep(300)
+
 # ---------------------------------------------------------------- 合并 + 缓存
 
 LAST_GOOD_PATH = os.path.expanduser("~/.config/ai-usage-widget/last-good.json")
@@ -396,6 +585,7 @@ def serve(cfg):
                 try:
                     payload = dict(snap.get(opener))
                     payload["theme"] = read_theme()   # 不进缓存，改了立即生效
+                    payload["stats"] = _stats_payload(payload)
                     self._json(payload)
                 except Exception as e:
                     self.send_response(500)
@@ -409,9 +599,23 @@ def serve(cfg):
             pass
 
     port = int(cfg.get("port", 47615))
+    threading.Thread(target=stats_loop, daemon=True).start()
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     sys.stderr.write("ai-usage-agent 监听 http://127.0.0.1:%d/usage\n" % port)
     httpd.serve_forever()
+
+
+def _stats_payload(payload):
+    """附上套餐月费，供前端算「羊毛倍数」；stats 未就绪时返回 None。"""
+    data = STATS["data"]
+    if not data:
+        return None
+    out = {k: dict(v) for k, v in data.items()}
+    plan_c = ((payload.get("claude") or {}).get("plan") or "").lower()
+    plan_x = ((payload.get("codex") or {}).get("plan") or "").lower()
+    out["claude"]["sub_price"] = CLAUDE_SUB_PRICE.get(plan_c)
+    out["codex"]["sub_price"] = CODEX_SUB_PRICE.get(plan_x)
+    return out
 
 # ---------------------------------------------------------------- main
 
@@ -419,10 +623,13 @@ def main():
     cfg = load_config()
     if "--once" in sys.argv:
         opener = make_opener(cfg.get("proxy"))
-        print(json.dumps({"updated": int(time.time()),
-                          "claude": read_claude(opener),
-                          "codex": read_codex(opener),
-                          "theme": read_theme()}, indent=2, ensure_ascii=False))
+        STATS["data"] = compute_stats()
+        payload = {"updated": int(time.time()),
+                   "claude": read_claude(opener),
+                   "codex": read_codex(opener),
+                   "theme": read_theme()}
+        payload["stats"] = _stats_payload(payload)
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
     serve(cfg)
 

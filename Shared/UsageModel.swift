@@ -32,6 +32,33 @@ struct UsageSnapshot: Codable, Hashable {
     let claude: ProductUsage
     let codex: ProductUsage
     var theme: String? = nil   // "system" | "light" | "dark"
+    var stats: UsageStats? = nil
+}
+
+// ---- Token 统计（Agent 后台聚合，估算值）----
+
+struct StatBucket: Codable, Hashable {
+    let tokens: Int
+    let cost: Double
+}
+
+struct ProductStats: Codable, Hashable {
+    let today: StatBucket?
+    let week: StatBucket?
+    let total: StatBucket?
+    let monthCost: Double?
+    let subPrice: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case today, week, total
+        case monthCost = "month_cost"
+        case subPrice = "sub_price"
+    }
+}
+
+struct UsageStats: Codable, Hashable {
+    let claude: ProductStats?
+    let codex: ProductStats?
 }
 
 extension ProductUsage {

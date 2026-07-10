@@ -46,6 +46,12 @@ struct ContentView: View {
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(palette.track, lineWidth: 0.5))
             .environment(\.palette, palette)
 
+            if let stats = snapshot.stats {
+                StatsSection(stats: stats)
+                    .frame(width: 320)
+                    .environment(\.palette, palette)
+            }
+
             VStack(spacing: 10) {
                 HStack {
                     Text("小组件外观").font(.system(size: 12))
