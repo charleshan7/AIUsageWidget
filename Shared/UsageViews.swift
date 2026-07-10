@@ -123,19 +123,19 @@ struct StatsSection: View {
     @Environment(\.palette) private var palette
     let stats: UsageStats
 
-    private func woolText(_ s: ProductStats?) -> String? {
+    private func woolText(_ name: String, _ s: ProductStats?) -> String? {
         guard let cost = s?.monthCost else { return nil }
         if let sub = s?.subPrice, sub > 0 {
-            return "\(fmtCost(cost))（\(String(format: "%.1f", cost / sub))× 订阅）"
+            return "\(name) \(fmtCost(cost))（\(String(format: "%.1f", cost / sub))× 订阅）"
         }
-        return fmtCost(cost)
+        return "\(name) \(fmtCost(cost))"
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            Text("Token 消耗（API 等值估算）")
+                .font(.system(size: 11, weight: .medium)).foregroundColor(palette.secondary)
             HStack {
-                Text("Token 消耗（API 等值估算）")
-                    .font(.system(size: 11, weight: .medium)).foregroundColor(palette.secondary)
                 Spacer()
                 Text("今日").font(.system(size: 10)).foregroundColor(palette.tertiary)
                     .frame(width: 62, alignment: .trailing)
@@ -146,18 +146,19 @@ struct StatsSection: View {
             }
             statRow(name: "Claude", color: palette.claude, s: stats.claude)
             statRow(name: "Codex", color: palette.codex, s: stats.codex)
-            if woolText(stats.claude) != nil || woolText(stats.codex) != nil {
-                HStack(spacing: 6) {
+            let wools = [woolText("Claude", stats.claude),
+                         woolText("Codex", stats.codex)].compactMap { $0 }
+            if !wools.isEmpty {
+                Rectangle().fill(palette.track).frame(height: 0.5).padding(.vertical, 2)
+                HStack(alignment: .top, spacing: 8) {
                     Text("本月羊毛").font(.system(size: 10)).foregroundColor(palette.tertiary)
-                    if let w = woolText(stats.claude) {
-                        Text("Claude \(w)").font(.system(size: 10)).foregroundColor(palette.secondary)
-                    }
-                    if let w = woolText(stats.codex) {
-                        Text("Codex \(w)").font(.system(size: 10)).foregroundColor(palette.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(wools, id: \.self) { w in
+                            Text(w).font(.system(size: 10)).foregroundColor(palette.secondary)
+                        }
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.top, 1)
             }
         }
         .padding(10)
