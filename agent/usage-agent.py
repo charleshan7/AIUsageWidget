@@ -87,7 +87,10 @@ def read_codex():
                     except Exception:
                         continue
                     rl = _find_key(obj, "rate_limits")
-                    if isinstance(rl, dict):
+                    # 跳过 primary/secondary 都为 null 的退化条目（如额度耗尽时的
+                    # "premium" 记录），只取含可用窗口的最后一条。
+                    if isinstance(rl, dict) and (isinstance(rl.get("primary"), dict)
+                                                 or isinstance(rl.get("secondary"), dict)):
                         last = rl
         except Exception:
             continue
@@ -213,12 +216,11 @@ def read_claude(opener):
         return {"ok": False, "error": str(e)[:80]}
 
 def _claude_win(w):
+    # Claude 是实时接口，resets_at 始终是当前窗口（未来），无需过点归零。
     if not isinstance(w, dict):
         return None
-    ra = iso_to_unix(w.get("resets_at"))
-    if ra is not None and ra < time.time():
-        return {"percent": 0, "resets_at": None}
-    return {"percent": round(w.get("utilization") or 0), "resets_at": ra}
+    return {"percent": round(w.get("utilization") or 0),
+            "resets_at": iso_to_unix(w.get("resets_at"))}
 
 # ---------------------------------------------------------------- 合并 + 缓存
 
