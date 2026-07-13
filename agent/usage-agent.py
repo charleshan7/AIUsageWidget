@@ -75,9 +75,23 @@ def iso_to_unix(s):
 CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 
 def read_codex(opener):
-    """优先调实时接口（当前账号权威值），失败再回退本地文件扫描。"""
+    """优先使用完整的实时窗口；不完整响应才回退本地一周快照。"""
     live = _codex_live(opener)
-    return live if live is not None else _codex_from_files()
+    # 未能从实时接口识别出一周窗口时，才使用本地兜底。_codex_live 会根据
+    # limit_window_seconds 处理「primary 本身就是一周」的账号响应。
+    if live is not None and live.get("five_hour") is not None and live.get("seven_day") is not None:
+        return live
+
+    fallback = _codex_from_files()
+    if fallback.get("ok"):
+        if live and live.get("plan"):
+            fallback["plan"] = live["plan"]
+        return fallback
+
+    if live is not None:
+        live["five_hour"] = {"percent": 0, "resets_at": None}
+        return live
+    return fallback
 
 
 def _codex_account_id(auth):
@@ -106,10 +120,21 @@ def _codex_live(opener):
         req = urllib.request.Request(CODEX_USAGE_URL, headers=headers)
         j = _open_json(opener, req)
         rl = j.get("rate_limit") or {}
+        primary = rl.get("primary_window")
+        secondary = rl.get("secondary_window")
+
+        # 有些账号只返回一个 7 天窗口，却放在 primary_window（secondary 为 null）。
+        # 不能按字段名把它展示成 5 小时；按窗口时长映射到一周，并将 5 小时归零。
+        if _codex_window_seconds(primary) >= 6 * 24 * 3600:
+            five_hour = {"percent": 0, "resets_at": None}
+            seven_day = _codex_live_win(primary)
+        else:
+            five_hour = _codex_live_win(primary)
+            seven_day = _codex_live_win(secondary)
         return {"ok": True,
                 "plan": j.get("plan_type"),
-                "five_hour": _codex_live_win(rl.get("primary_window")),
-                "seven_day": _codex_live_win(rl.get("secondary_window"))}
+                "five_hour": five_hour,
+                "seven_day": seven_day}
     except Exception:
         return None
 
@@ -122,13 +147,25 @@ def _codex_live_win(w):
             "resets_at": int(ra) if ra else None}
 
 
+def _codex_window_seconds(w):
+    if not isinstance(w, dict):
+        return 0
+    try:
+        return int(w.get("limit_window_seconds") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _codex_from_files():
-    """回退：全局取「事件时间戳最新」的可用 primary/secondary。
+    """回退：只使用本地快照中的一周窗口。
 
     多个并发会话时，文件 mtime 最新的那条可能是额度耗尽写的 primary/secondary 全 null
     的退化记录（limit_id="premium"），或比别的会话更旧。所以按每条 rate_limits 事件自身
-    的 timestamp 全局取最新。注意：本地文件不带账号 id，多账号时可能串到别的账号，
-    仅作为实时接口失败时的兜底。
+    的 timestamp 全局取最新。注意：本地文件不带账号 id，多账号时可能串到别的账号。
+
+    primary（5 小时）是 CLI 写入的临时限额快照，实时接口不可用时不能可靠代表当前
+    窗口；此降级路径固定返回 0%，避免把过期的临时用量误报为实时消耗。secondary
+    （一周）仍按最新可用快照显示。
     """
     pattern = os.path.expanduser("~/.codex/sessions/**/*.jsonl")
     files = sorted(glob.glob(pattern, recursive=True), key=os.path.getmtime, reverse=True)
@@ -158,7 +195,7 @@ def _codex_from_files():
     if best_p[1] is None and best_s[1] is None:
         return {"ok": False, "error": "无数据（还没用过 Codex？）"}
     return {"ok": True,
-            "five_hour": _codex_win(best_p[1]),
+            "five_hour": {"percent": 0, "resets_at": None},
             "seven_day": _codex_win(best_s[1]),
             "plan": _codex_plan()}
 

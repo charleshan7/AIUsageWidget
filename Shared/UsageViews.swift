@@ -184,13 +184,17 @@ struct StatsSection: View {
 
 struct UsageBar: View {
     @Environment(\.palette) private var palette
+    @Environment(\.widgetRenderingMode) private var renderingMode
     let percent: Int
     var height: CGFloat = 6
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(palette.track)
-                Capsule().fill(severityColor(percent))
+                // 单色模式下只用同一灰阶的透明度做层次：深色轨道 + 浅色填充。
+                // 不放入 accent group，避免它在不同桌面色调下重新变成实心色块。
+                Capsule().fill(renderingMode == .fullColor ? palette.track : Color.white.opacity(0.24))
+                Capsule()
+                    .fill(renderingMode == .fullColor ? severityColor(percent) : Color.white.opacity(0.92))
                     .frame(width: max(geo.size.width * CGFloat(min(max(percent, 0), 100)) / 100.0,
                                       percent > 0 ? 3 : 0))
             }
@@ -201,19 +205,30 @@ struct UsageBar: View {
 
 struct ProductHeader: View {
     @Environment(\.palette) private var palette
+    @Environment(\.widgetRenderingMode) private var renderingMode
     let name: String
     let color: Color
     var plan: String? = nil
     var body: some View {
         HStack(spacing: 6) {
+            // 产品色点在全部模式中保留，方便快速区分 Claude Code 与 Codex。
             Circle().fill(color).frame(width: 7, height: 7)
             Text(name).font(.system(size: 12, weight: .medium)).foregroundColor(palette.textPrimary)
-            if let plan = plan {
-                Text(plan.capitalized)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(palette.secondary)
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Capsule().fill(palette.track))
+            if let plan, !plan.isEmpty {
+                if renderingMode == .fullColor {
+                    Text(plan.capitalized)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(palette.secondary)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Capsule().fill(palette.track))
+                } else {
+                    // vibrant 会把文字和不透明胶囊都映射成同一灰阶，文字随即消失。
+                    // 单色状态改为无底色的明确文本，保留套餐/消耗数据的可读性。
+                    Text(plan.capitalized)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .opacity(0.88)
+                }
             }
             Spacer(minLength: 0)
         }

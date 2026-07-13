@@ -47,6 +47,7 @@ struct UsageProvider: TimelineProvider {
 struct UsageWidgetEntryView: View {
     @Environment(\.widgetFamily) private var family
     @Environment(\.colorScheme) private var systemScheme
+    @Environment(\.widgetRenderingMode) private var renderingMode
     let entry: UsageEntry
 
     private var palette: Palette {
@@ -67,10 +68,15 @@ struct UsageWidgetEntryView: View {
             }
             Button(intent: RefreshUsageIntent()) {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(palette.secondary)
-                    .padding(5)
-                    .background(Circle().fill(palette.track))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(renderingMode == .fullColor ? palette.secondary : .primary)
+                    .frame(width: 22, height: 22)
+                    .background {
+                        if renderingMode == .fullColor {
+                            Circle().fill(palette.track)
+                        }
+                    }
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .padding(7)
