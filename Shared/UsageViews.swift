@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit   // widgetRenderingMode
 
 // ---- 配色（浅/深两套，可被「外观」偏好强制覆盖）----
 
@@ -209,6 +210,9 @@ struct ProductHeader: View {
     let name: String
     let color: Color
     var plan: String? = nil
+    var stale: Bool = false
+    var relogin: Bool = false
+    private var staleLabel: String { relogin ? "需重新登录" : "已过期" }
     var body: some View {
         HStack(spacing: 6) {
             // 产品色点在全部模式中保留，方便快速区分 Claude Code 与 Codex。
@@ -225,6 +229,20 @@ struct ProductHeader: View {
                     // vibrant 会把文字和不透明胶囊都映射成同一灰阶，文字随即消失。
                     // 单色状态改为无底色的明确文本，保留套餐/消耗数据的可读性。
                     Text(plan.capitalized)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .opacity(0.88)
+                }
+            }
+            if stale {
+                if renderingMode == .fullColor {
+                    Text(staleLabel)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Capsule().fill(severityColor(100)))
+                } else {
+                    Text(staleLabel)
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.primary)
                         .opacity(0.88)
@@ -293,11 +311,17 @@ struct SmallProduct: View {
     let color: Color
     let product: ProductUsage
     var body: some View {
+        let stale = product.stale == true
+        let relogin = product.relogin == true
         VStack(alignment: .leading, spacing: 3) {
-            ProductHeader(name: name, color: color, plan: product.plan)
+            // 小卡宽度紧张：过期时用角标顶掉套餐徽标
+            ProductHeader(name: name, color: color, plan: stale ? nil : product.plan, stale: stale, relogin: relogin)
             if product.ok {
-                SmallMetric(label: "5h", window: product.fiveHour)
-                SmallMetric(label: "周", window: product.sevenDay)
+                Group {
+                    SmallMetric(label: "5h", window: product.fiveHour)
+                    SmallMetric(label: "周", window: product.sevenDay)
+                }
+                .opacity(stale ? 0.5 : 1)
             } else {
                 ProductError(message: product.error ?? "无数据")
             }
@@ -325,11 +349,17 @@ struct MediumColumn: View {
     let color: Color
     let product: ProductUsage
     var body: some View {
+        let stale = product.stale == true
+        let relogin = product.relogin == true
         VStack(alignment: .leading, spacing: 8) {
-            ProductHeader(name: name, color: color, plan: product.plan)
+            // 中卡列宽有限：过期时用角标顶掉套餐徽标，避免名字换行
+            ProductHeader(name: name, color: color, plan: stale ? nil : product.plan, stale: stale, relogin: relogin)
             if product.ok {
-                MetricRow(label: "5 小时", window: product.fiveHour)
-                MetricRow(label: "一周", window: product.sevenDay)
+                Group {
+                    MetricRow(label: "5 小时", window: product.fiveHour)
+                    MetricRow(label: "一周", window: product.sevenDay)
+                }
+                .opacity(stale ? 0.5 : 1)
             } else {
                 ProductError(message: product.error ?? "无数据")
                 Spacer(minLength: 0)
@@ -359,11 +389,16 @@ struct LargeSection: View {
     let color: Color
     let product: ProductUsage
     var body: some View {
+        let stale = product.stale == true
+        let relogin = product.relogin == true
         VStack(alignment: .leading, spacing: 8) {
-            ProductHeader(name: name, color: color, plan: product.plan)
+            ProductHeader(name: name, color: color, plan: product.plan, stale: stale, relogin: relogin)
             if product.ok {
-                MetricRow(label: "5 小时窗口", window: product.fiveHour, showAbsolute: true, barHeight: 8)
-                MetricRow(label: "一周窗口", window: product.sevenDay, showAbsolute: true, barHeight: 8)
+                Group {
+                    MetricRow(label: "5 小时窗口", window: product.fiveHour, showAbsolute: true, barHeight: 8)
+                    MetricRow(label: "一周窗口", window: product.sevenDay, showAbsolute: true, barHeight: 8)
+                }
+                .opacity(stale ? 0.5 : 1)
             } else {
                 ProductError(message: product.error ?? "无数据")
             }

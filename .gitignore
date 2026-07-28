@@ -3,3 +3,5 @@ DerivedData/
 *.xcodeproj
 Config.local.xcconfig
 .DS_Store
+__pycache__/
+*.pyc

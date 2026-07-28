@@ -291,24 +291,70 @@ def _refresh(opener, refresh_token):
                                           "User-Agent": "ai-usage-agent/1.0"})
     return _open_json(opener, req)
 
+# refreshToken 每次刷新都会轮换：并发刷新会让先写回的那份当场作废，凭证永久坏掉
+# （只能重新登录）。所有刷新必须串行，且在锁内重读 Keychain——别的线程或 claude
+# 自己可能刚刷过，重读后往往已无需再刷。
+_REFRESH_LOCK = threading.Lock()
+
+class ReloginRequired(Exception):
+    """凭证坏到只能重新登录，与临时取数失败区分开。"""
+
+def _needs_refresh(oauth):
+    return (oauth.get("expiresAt", 0) / 1000.0) <= time.time() + 60
+
+def _ensure_token(opener, acct, cred):
+    """返回可用的 oauth。必要时串行刷新并写回 Keychain。"""
+    oauth = cred["claudeAiOauth"]
+    if not _needs_refresh(oauth):
+        return oauth
+    with _REFRESH_LOCK:
+        # 锁内重读，捡起别人刚写回的新 token，避免重复消耗 refreshToken
+        try:
+            fresh = _keychain_read(acct).get("claudeAiOauth")
+            if fresh:
+                cred["claudeAiOauth"] = oauth = fresh
+        except Exception:
+            pass
+        if not _needs_refresh(oauth):
+            return oauth
+        if not oauth.get("refreshToken"):
+            # 凭证里没有 refreshToken（登录未完成，或被 claude 自己清空）：
+            # 拿空串去刷只会换来一句 "Invalid request format"，直接报要重登。
+            raise ReloginRequired("凭证缺少 refreshToken")
+        try:
+            data = _refresh(opener, oauth["refreshToken"])
+        except urllib.error.HTTPError as e:
+            # 刷新被拒通常是 claude 自己也刷过、把这份轮换作废了。重读一次：
+            # 它若已写回新 token 就直接用，免得逼用户重新登录。
+            if e.code not in (400, 401):
+                raise
+            retry = _keychain_read(acct).get("claudeAiOauth") or {}
+            if not retry.get("refreshToken") or retry["refreshToken"] == oauth["refreshToken"]:
+                raise
+            cred["claudeAiOauth"] = oauth = retry
+            if not _needs_refresh(oauth):
+                return oauth
+            data = _refresh(opener, oauth["refreshToken"])
+        if "access_token" not in data:
+            raise RuntimeError("刷新失败")
+        oauth["accessToken"] = data["access_token"]
+        oauth["refreshToken"] = data.get("refresh_token", oauth["refreshToken"])
+        oauth["expiresAt"] = int((time.time() + data.get("expires_in", 3600)) * 1000)
+        cred["claudeAiOauth"] = oauth
+        _keychain_write(acct, cred)
+        return oauth
+
 def read_claude(opener):
+    stage = "keychain"
     try:
         acct = _keychain_account()
         cred = _keychain_read(acct)
-        oauth = cred.get("claudeAiOauth")
-        if not oauth:
+        if not cred.get("claudeAiOauth"):
             return {"ok": False, "error": "凭证格式异常"}
-        # 过期（或 60s 内将过期）则刷新并写回
-        if (oauth.get("expiresAt", 0) / 1000.0) <= time.time() + 60:
-            data = _refresh(opener, oauth["refreshToken"])
-            if "access_token" not in data:
-                return {"ok": False, "error": "刷新失败"}
-            oauth["accessToken"] = data["access_token"]
-            oauth["refreshToken"] = data.get("refresh_token", oauth["refreshToken"])
-            oauth["expiresAt"] = int((time.time() + data.get("expires_in", 3600)) * 1000)
-            cred["claudeAiOauth"] = oauth
-            _keychain_write(acct, cred)
+        stage = "refresh"
+        oauth = _ensure_token(opener, acct, cred)
         # 调 /usage
+        stage = "usage"
         req = urllib.request.Request(USAGE_URL, headers={
             "Authorization": "Bearer %s" % oauth["accessToken"],
             "anthropic-beta": OAUTH_BETA,
@@ -319,7 +365,21 @@ def read_claude(opener):
                 "five_hour": _claude_win(usage.get("five_hour")),
                 "seven_day": _claude_win(usage.get("seven_day"))}
     except urllib.error.HTTPError as e:
-        return {"ok": False, "error": "接口 HTTP %s" % e.code}
+        # 带上响应体：区分「refreshToken 过期需重登」和别的接口故障
+        try:
+            detail = json.loads(e.read().decode())
+            detail = detail.get("error_description") or detail.get("error") or ""
+        except Exception:
+            detail = ""
+        # 刷新被拒（过期 / 已被轮换作废）只能重新登录，与临时故障区分开
+        if stage == "refresh" and e.code in (400, 401):
+            return {"ok": False, "error": "登录已失效，请重新登录", "relogin": True,
+                    "detail": str(detail)[:80]}
+        return {"ok": False,
+                "error": "%s HTTP %s%s" % (stage, e.code, ("：%s" % detail) if detail else "")}
+    except ReloginRequired as e:
+        return {"ok": False, "error": "登录已失效，请重新登录", "relogin": True,
+                "detail": str(e)[:80]}
     except Exception as e:
         return {"ok": False, "error": str(e)[:80]}
 
@@ -585,6 +645,8 @@ class Snapshot:
         self.cache_seconds = cache_seconds
         self.payload = None
         self.ts = 0
+        # 小/中/大三个小组件会被 reloadAllTimelines 同时唤醒：不加锁就会并发取数
+        self.lock = threading.Lock()
         # 上次成功值落盘，重启/429/断网时兜底展示（略旧胜过报错）
         self.last_good = self._load()
 
@@ -605,9 +667,18 @@ class Snapshot:
             pass
 
     def get(self, opener):
-        now = time.time()
-        if self.payload and now - self.ts < self.cache_seconds:
+        if self._cached():
             return self.payload
+        with self.lock:
+            if self._cached():          # 等锁期间别的线程可能已取好
+                return self.payload
+            return self._fetch(opener)
+
+    def _cached(self):
+        return self.payload is not None and time.time() - self.ts < self.cache_seconds
+
+    def _fetch(self, opener):
+        now = time.time()
         claude = read_claude(opener)
         codex = read_codex(opener)
         # 取数失败（429/断网/未登录）时复用上次成功值，避免卡片报错/闪空
@@ -617,8 +688,13 @@ class Snapshot:
                 self.last_good[key] = val
                 changed = True
             elif self.last_good[key]:
+                fail = val
                 val = dict(self.last_good[key])
                 val["stale"] = True
+                # 兜底展示旧数据，但保留失败原因：需重新登录要能提示到用户
+                val["error"] = fail.get("error")
+                if fail.get("relogin"):
+                    val["relogin"] = True
                 if key == "claude":
                     claude = val
                 else:

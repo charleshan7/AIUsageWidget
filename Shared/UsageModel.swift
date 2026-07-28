@@ -19,9 +19,11 @@ struct ProductUsage: Codable, Hashable {
     let sevenDay: UsageWindow?
     let stale: Bool?
     let error: String?
+    /// 登录凭证失效，只能重新登录才能恢复（与临时取数失败区分）。
+    var relogin: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
-        case ok, plan, stale, error
+        case ok, plan, stale, error, relogin
         case fiveHour = "five_hour"
         case sevenDay = "seven_day"
     }

@@ -52,6 +52,27 @@ struct ContentView: View {
                     .environment(\.palette, palette)
             }
 
+            // 取数凭证失效时 Agent 会回吐缓存（stale），提示怎么恢复
+            if snapshot.claude.stale == true || snapshot.codex.stale == true {
+                VStack(alignment: .leading, spacing: 4) {
+                    if snapshot.claude.stale == true {
+                        Text(snapshot.claude.relogin == true
+                             ? "Claude 登录已失效，正在显示缓存。终端运行 claude 后输入 /login 重新登录即可恢复。"
+                             : "Claude 数据暂时取不到（\(snapshot.claude.error ?? "未知原因")），正在显示缓存。")
+                    }
+                    if snapshot.codex.stale == true {
+                        Text(snapshot.codex.relogin == true
+                             ? "Codex 登录已失效，正在显示缓存。重新登录 codex 即可恢复。"
+                             : "Codex 数据暂时取不到，正在显示缓存。")
+                    }
+                }
+                .font(.system(size: 12)).foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(Color.primary.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
             VStack(spacing: 10) {
                 HStack {
                     Text("小组件外观").font(.system(size: 12))
