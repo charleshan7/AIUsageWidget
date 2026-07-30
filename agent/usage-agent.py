@@ -350,7 +350,7 @@ def read_claude(opener):
         acct = _keychain_account()
         cred = _keychain_read(acct)
         if not cred.get("claudeAiOauth"):
-            return {"ok": False, "error": "凭证格式异常"}
+            return {"ok": False, "error": "凭证格式异常", "stage": stage}
         stage = "refresh"
         oauth = _ensure_token(opener, acct, cred)
         # 调 /usage
@@ -374,14 +374,17 @@ def read_claude(opener):
         # 刷新被拒（过期 / 已被轮换作废）只能重新登录，与临时故障区分开
         if stage == "refresh" and e.code in (400, 401):
             return {"ok": False, "error": "登录已失效，请重新登录", "relogin": True,
+                    "stage": stage,
                     "detail": str(detail)[:80]}
         return {"ok": False,
+                "stage": stage,
                 "error": "%s HTTP %s%s" % (stage, e.code, ("：%s" % detail) if detail else "")}
     except ReloginRequired as e:
         return {"ok": False, "error": "登录已失效，请重新登录", "relogin": True,
+                "stage": stage,
                 "detail": str(e)[:80]}
     except Exception as e:
-        return {"ok": False, "error": str(e)[:80]}
+        return {"ok": False, "error": str(e)[:80], "stage": stage}
 
 def _claude_win(w):
     # Claude 是实时接口，resets_at 始终是当前窗口（未来），无需过点归零。
@@ -691,10 +694,10 @@ class Snapshot:
                 fail = val
                 val = dict(self.last_good[key])
                 val["stale"] = True
-                # 兜底展示旧数据，但保留失败原因：需重新登录要能提示到用户
-                val["error"] = fail.get("error")
-                if fail.get("relogin"):
-                    val["relogin"] = True
+                # 兜底展示旧数据，但完整保留失败原因，便于区分过期与 token 轮换损坏。
+                for field in ("error", "relogin", "stage", "detail"):
+                    if field in fail:
+                        val[field] = fail[field]
                 if key == "claude":
                     claude = val
                 else:

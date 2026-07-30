@@ -44,7 +44,9 @@ m._keychain_read = lambda acct: {"claudeAiOauth": {
     "accessToken": "at-old", "refreshToken": "rt-dead", "expiresAt": 0, "subscriptionType": "pro"}}
 r2 = m.read_claude(None)
 print("\n死 token 用例:", json.dumps(r2, ensure_ascii=False))
-if r2.get("ok") or not r2.get("relogin"):
-    print("❌ 失败：真的失效时应标记 relogin")
+if (r2.get("ok") or not r2.get("relogin")
+        or r2.get("stage") != "refresh"
+        or r2.get("detail") != "Refresh token not found or invalid"):
+    print("❌ 失败：真的失效时应标记 relogin，并保留 refresh 阶段与响应详情")
     sys.exit(1)
 print("✅ 通过：真失效时正确标记 relogin")
