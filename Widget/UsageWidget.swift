@@ -38,8 +38,17 @@ struct UsageProvider: TimelineProvider {
             let snapshot = await UsageAPI.fetch()
             let now = Date()
             // 用量变化不快：每 10 分钟刷新一次（菜单/按钮也会主动重载）。
-            let entry = UsageEntry(date: now, snapshot: snapshot)
-            completion(Timeline(entries: [entry], policy: .after(now.addingTimeInterval(10 * 60))))
+            //
+            // 但系统「冻」住小组件时（重载预算耗尽、宿主 App 换过路径导致注册失效等）
+            // 不会有任何代码被执行——只排一条时间线的话，几天前的数字会一直冒充实时，
+            // 而且倒计时文案是渲染那一刻算好的，看上去完全合理。这里预排几条「已过期」
+            // 条目兜底：重载即使没发生，卡片也会自己降级，不会继续骗人。
+            var entries = [UsageEntry(date: now, snapshot: snapshot)]
+            let staled = snapshot.markedStale()
+            for minutes in [20.0, 45.0, 90.0, 240.0, 720.0] {
+                entries.append(UsageEntry(date: now.addingTimeInterval(minutes * 60), snapshot: staled))
+            }
+            completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(10 * 60))))
         }
     }
 }
