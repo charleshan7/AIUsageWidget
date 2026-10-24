@@ -350,7 +350,9 @@ def read_claude(opener):
         acct = _keychain_account()
         cred = _keychain_read(acct)
         if not cred.get("claudeAiOauth"):
-            return {"ok": False, "error": "凭证格式异常", "stage": stage}
+            # 条目还在但没有 claudeAiOauth：独立 CLI 已登出（只剩 mcpOAuth 等），
+            # 不是格式坏了——只能在 Terminal.app 里 `claude` 重新 /login。
+            raise ReloginRequired("Keychain 里没有 claudeAiOauth（CLI 未登录）")
         stage = "refresh"
         oauth = _ensure_token(opener, acct, cred)
         # 调 /usage

@@ -50,3 +50,12 @@ if (r2.get("ok") or not r2.get("relogin")
     print("❌ 失败：真的失效时应标记 relogin，并保留 refresh 阶段与响应详情")
     sys.exit(1)
 print("✅ 通过：真失效时正确标记 relogin")
+
+# 登出用例：条目里只剩 mcpOAuth、没有 claudeAiOauth → 也必须报「需重新登录」
+m._keychain_read = lambda acct: {"mcpOAuth": {}}
+r3 = m.read_claude(None)
+print("\n已登出用例:", json.dumps(r3, ensure_ascii=False))
+if r3.get("ok") or not r3.get("relogin"):
+    print("❌ 失败：CLI 登出时应标记 relogin")
+    sys.exit(1)
+print("✅ 通过：CLI 登出时正确标记 relogin")
