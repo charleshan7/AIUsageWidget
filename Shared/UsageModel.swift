@@ -19,9 +19,11 @@ struct ProductUsage: Codable, Hashable {
     let sevenDay: UsageWindow?
     let stale: Bool?
     let error: String?
+    /// 登录凭证失效，只能重新登录才能恢复（与临时取数失败区分）。
+    var relogin: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
-        case ok, plan, stale, error
+        case ok, plan, stale, error, relogin
         case fiveHour = "five_hour"
         case sevenDay = "seven_day"
     }
@@ -74,7 +76,20 @@ extension ProductUsage {
     }
 }
 
+extension ProductUsage {
+    /// 保留数值但标记为陈旧，视图会打「已过期」并压低透明度。
+    func markedStale() -> ProductUsage {
+        ProductUsage(ok: ok, plan: plan, fiveHour: fiveHour, sevenDay: sevenDay,
+                     stale: true, error: error, relogin: relogin)
+    }
+}
+
 extension UsageSnapshot {
+    func markedStale() -> UsageSnapshot {
+        UsageSnapshot(updated: updated, claude: claude.markedStale(), codex: codex.markedStale(),
+                      theme: theme, stats: stats)
+    }
+
     /// 预览 / 占位用的假数据。
     static let sample = UsageSnapshot(
         updated: Int(Date().timeIntervalSince1970),

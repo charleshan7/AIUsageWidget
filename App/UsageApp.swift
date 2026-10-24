@@ -28,6 +28,25 @@ struct ContentView: View {
 
     private var connected: Bool { snapshot.claude.ok || snapshot.codex.ok }
     private var palette: Palette { Palette.of(AppTheme.scheme(theme) ?? systemScheme) }
+    private var showRecoveryNotice: Bool {
+        snapshot.claude.stale == true || snapshot.claude.relogin == true ||
+        snapshot.codex.stale == true || snapshot.codex.relogin == true
+    }
+
+    private func recoveryNotice(for product: ProductUsage, name: String) -> String? {
+        let stale = product.stale == true
+        let relogin = product.relogin == true
+        guard stale || relogin else { return nil }
+
+        if relogin {
+            let cacheStatus = stale ? "正在显示缓存。" : "当前没有可用缓存。"
+            if name == "Claude" {
+                return "Claude 登录已失效，\(cacheStatus)请在 Terminal.app 运行独立 claude CLI 并输入 /login 重新登录。"
+            }
+            return "Codex 登录已失效，\(cacheStatus)请在 Terminal.app 重新登录 codex。"
+        }
+        return "\(name) 数据暂时取不到（\(product.error ?? "未知原因")），正在显示缓存。"
+    }
 
     private var updatedText: String {
         let fmt = DateFormatter()
@@ -50,6 +69,23 @@ struct ContentView: View {
                 StatsSection(stats: stats)
                     .frame(width: 320)
                     .environment(\.palette, palette)
+            }
+
+            // 有缓存时说明数据已过期；无缓存但需重登时也必须给出正确恢复路径。
+            if showRecoveryNotice {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let notice = recoveryNotice(for: snapshot.claude, name: "Claude") {
+                        Text(notice)
+                    }
+                    if let notice = recoveryNotice(for: snapshot.codex, name: "Codex") {
+                        Text(notice)
+                    }
+                }
+                .font(.system(size: 12)).foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(Color.primary.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
             VStack(spacing: 10) {
